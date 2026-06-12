@@ -1,0 +1,9 @@
+branch: issue-1-generic-runtime
+project-sha: d142355ac69e52491e77724f71b090b49bfd79e6
+date: 2026-06-12
+issue: 1
+issue-repo: casehubio/casehub-desiredstate
+covers: 1
+flyway-next-v: none
+design-repo: project
+design-section-hashes: 
