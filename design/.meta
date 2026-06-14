@@ -1,0 +1,9 @@
+branch: issue-2-toy-infra-domain
+project-sha: efc6f44b41400c01ca37414d4477cecdaf929d81
+date: 2026-06-14
+issue: 2
+issue-repo: casehubio/casehub-desiredstate
+covers: 2
+flyway-next-v: none
+design-repo: project
+design-section-hashes: 
