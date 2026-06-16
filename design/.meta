@@ -1,0 +1,9 @@
+branch: issue-35-pipeline-polish-and-layer-enforcement
+project-sha: cfa901461c20440d41aadaf5e36035174a363fab
+date: 2026-06-16
+issue: 35
+issue-repo: casehubio/casehub-desiredstate
+covers: 35,31
+flyway-next-v: none
+design-repo: project
+design-section-hashes: 
