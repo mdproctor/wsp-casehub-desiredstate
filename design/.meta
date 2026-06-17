@@ -1,0 +1,9 @@
+branch: issue-37-batch-s-items
+project-sha: 371b8476023536744cfea52f833307b062331191
+date: 2026-06-17
+issue: 37
+issue-repo: casehubio/casehub-desiredstate
+covers: 37,22,29,30
+flyway-next-v: none
+design-repo: project
+design-section-hashes: 
