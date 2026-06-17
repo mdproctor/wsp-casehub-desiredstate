@@ -1,0 +1,9 @@
+branch: issue-28-per-node-execution-toolbox
+project-sha: 37829939511059d795673f85317a137296123da7
+date: 2026-06-17
+issue: 28
+issue-repo: casehubio/casehub-desiredstate
+covers: 28
+flyway-next-v: none
+design-repo: project
+design-section-hashes: 
