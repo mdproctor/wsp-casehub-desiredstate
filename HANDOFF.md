@@ -2,16 +2,15 @@
 
 ## Last Session
 
-Closed #35 (pipeline polish) and #31 (medallion layer enforcement) on a single branch. `layerOf()` now returns `Optional<PipelineLayer>` — fault nodes (AI_REVIEW, HUMAN_REVIEW) return empty. `MedallionLayerConstraint` validates no backward or layer-skipping dependencies; wired into `PipelineGoalCompiler.compile()`. Spec wording synced. 7 new tests (13→20 total in pipeline module).
+Closed #22 (OTel tracing), #29 (AgentProvider for AI_REVIEW), #30 (WorkItem for HUMAN_REVIEW), and branch cleanup (deleted `issue-1-minimal-api-types`). Three-tier fault escalation now wired to real platform SPIs. 17 new tests (139 total). Garden entry submitted: `GE-20260617-abe516` (static tracer field gotcha). parent#271 filed for PLATFORM.md cross-repo dependency sync.
 
 ## Immediate Next Step
 
-Pick the next issue. Top candidates: pipeline evolution (#27–#30 for managed mode, toolbox, LLM/WorkItem integration) or platform design (#22–#25). The orphan `issue-1-minimal-api-types` branch is still pending deletion.
+Pick the next issue. Top candidates: pipeline evolution (#27, #28 for managed mode and per-node toolbox) or platform design (#23–#25).
 
 ## What's Left
 
-- PLATFORM.md needs updating with pipeline example entry (parent#256 filed) · S · Low
-- `issue-1-minimal-api-types` project branch to delete (orphaned, all work merged from `issue-1-generic-runtime`) · XS · Low
+- parent#271 — PLATFORM.md sync for desiredstate pipeline AgentProvider dependency · XS · Low
 
 ## What's Next
 
@@ -19,15 +18,14 @@ Pick the next issue. Top candidates: pipeline evolution (#27–#30 for managed m
 |---|-------------|-------|------------|-------|
 | #27 | Managed pipeline mode — Quarkus Flow orchestration per node with audit trail | M | Med | Evolves pipeline from example to runtime |
 | #28 | Per-node execution toolbox — Camel, Drools, Stream backends | L | High | AiFusion showcase |
-| #29 | Real LLM integration for AI_REVIEW fault nodes via agent-api | S | Med | Connects to casehub-platform-agent-api |
-| #30 | Real WorkItem integration for HUMAN_REVIEW nodes via casehub-work | S | Med | Connects to casehub-work |
-| #22 | Unified tracing across casehub-engine and quarkus-flow | S | Med | Stretch goal |
-| #23 | CBR integration for desired-state evolution | M | High | Future — needs casehub-neural-text |
+| #23 | CBR integration for desired-state evolution | M | High | Needs casehub-neural-text |
 | #24 | State-vector abstraction for QuarkMind | L | High | Different graph model needed |
 | #25 | Desired-state as alternative case planning model | L | High | Depends on parent#233 |
 
 ## References
 
-- Spec: `docs/superpowers/specs/2026-06-15-data-pipeline-example-design.md`
-- Research: `docs/superpowers/research/2026-06-07-desired-state-management-research.md`
-- Blog: `blog/2026-06-17-mdp01-enforcing-what-was-already-true.md` (workspace)
+- Spec (OTel): `docs/superpowers/specs/2026-06-17-otel-tracing-design.md`
+- Spec (agent): `docs/superpowers/specs/2026-06-17-agent-review-integration-design.md`
+- Spec (WorkItem): `docs/superpowers/specs/2026-06-17-workitem-integration-design.md`
+- Blog: `blog/2026-06-17-mdp02-wiring-the-three-tiers.md` (workspace)
+- Garden: `GE-20260617-abe516` (OTel static tracer gotcha)
