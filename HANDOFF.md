@@ -1,5 +1,7 @@
 # Handoff — casehub-desiredstate
 
+*Updated: parent#271 closed — removed from backlog.*
+
 ## Last Session
 
 Closed #28 (per-node execution toolbox). Refactored `PipelineProvisioner` from a monolithic if-chain to hybrid dispatch: metadata/review handled directly, processing stages delegated to pluggable `ExecutionBackend` implementations. `DefaultExecutionBackend` extracts existing logic. 32 tests (23 existing + 9 new). Brainstorming surfaced Worker data coordination patterns (DataExchange, DataChannel) — filed as engine#528 (WorkerFunction pluggability) and engine#532 (Worker data patterns).
@@ -10,7 +12,6 @@ Pick the next issue. Top candidates: pipeline evolution (#27 for managed mode) o
 
 ## What's Left
 
-- parent#271 — PLATFORM.md sync for desiredstate pipeline AgentProvider dependency · XS · Low
 - PLATFORM.md desiredstate row needs updating to mention ExecutionBackend · XS · Low
 
 ## What's Next
