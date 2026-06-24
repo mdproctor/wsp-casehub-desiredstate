@@ -1,0 +1,9 @@
+branch: issue-38-drifted-reprovision
+project-sha: 578ae7976934087918dc8b9d7ebc7219e2c3da92
+date: 2026-06-24
+issue: 38
+issue-repo: casehubio/casehub-desiredstate
+covers: 38
+flyway-next-v: none
+design-repo: project
+design-section-hashes: 
