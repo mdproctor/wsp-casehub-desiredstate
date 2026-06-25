@@ -1,0 +1,9 @@
+branch: issue-34-batch-s-xs-fixes
+project-sha: bc73dff1e2db12b74241c7b5b8321362f1e1f960
+date: 2026-06-25
+issue: 34
+issue-repo: casehubio/casehub-desiredstate
+covers: 34,44,26,36,39
+flyway-next-v: none
+design-repo: project
+design-section-hashes: 979de182:## Artifact Schema|4d2cc5ab:## §1 Introduction and Goals|4f6b26ef:## §2 Constraints|39b76cb9:## §3 Context and Scope|74aa736f:## §4 Solution Strategy|9ca8de62:## §5 Building Block View|f1938c56:## §6 Runtime View|65807a21:## §7 Deployment View|a03d508f:## §8 Crosscutting Concepts|b2e1b57c:## §9 Journeys and Chapters|598f3a04:## §10 Architectural Decisions|1f604475:## §11 Quality Requirements|af5f260f:## §12 Risks and Technical Debt|42d51385:## §13 Glossary
