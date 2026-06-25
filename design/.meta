@@ -1,0 +1,9 @@
+branch: issue-42-arc42stories
+project-sha: 4c988390cabe7ff836e5c975122a8c0a3ed6eda9
+date: 2026-06-25
+issue: 42
+issue-repo: casehubio/casehub-desiredstate
+covers: 42
+flyway-next-v: none
+design-repo: project
+design-section-hashes: 
