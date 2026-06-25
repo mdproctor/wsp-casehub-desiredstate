@@ -2,26 +2,26 @@
 
 ## Last Session
 
-Closed #42 (ARC42STORIES.MD on main) and #41 (casehub-worker-api integration). Build is green again — engine-adapter now depends on casehub-worker-api for Worker/Capability types, with FlowWorkerFunction bridge from engine-flow. Discovered during resume that engine#543 and parent#288 had both closed, unblocking #41. Garden entry GE-20260625-d09c57 captures the three-module dependency split gotcha.
+Cleared the S/XS backlog: #34 (already fixed — closed), #44 (PLATFORM.md cross-repo update), #26 (PendingApproval on both ProvisionResult and DeprovisionResult), #36 (tenancyId through ActualStateAdapter and TransitionExecutor SPIs), #39 (pipeline wired to CaseTransitionExecutor). Also closed #40 — the Worker extraction epic is fully complete (all 7 cross-repo steps done; openclaw#37 and ops#8 were already resolved).
 
 ## Immediate Next Step
 
-Resume #27 (managed pipeline mode) — now unblocked. Run `/work` to resume from the pause stack. The branch has stale #41 commits that should be dropped (start #27's worker-api integration fresh from main).
+Resume #27 (managed pipeline mode). Run `/work` — the branch `issue-27-managed-pipeline-mode` exists in both repos but has stale #41 commits. Start #27's worker-api integration fresh from main.
 
 ## Cross-Module
 
-*Unchanged — `git show HEAD~1:HANDOFF.md`*
+*No active cross-module dependencies.*
 
 ## What's Left
 
-- #40 cross-repo execution: steps 4-7 remain (claudony#157 + workers#14 + openclaw#37 + ops#8) · L · Med
-- PLATFORM.md desiredstate row needs updating to mention ExecutionBackend · XS · Low
+- PLATFORM.md desiredstate row committed to casehub-parent on `issue-293-channel-taxonomy` branch (893e5c65) — needs pushing when that branch closes · XS · Low
 
 ## What's Next
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
-| #27 | Managed pipeline mode — Quarkus Flow per stage | M | High | Paused; unblocked by #41 |
+| #27 | Managed pipeline mode — Quarkus Flow per stage | M | High | Branch exists; unblocked by #41 |
+| #43 | SimpleTransitionExecutor — create WorkItem for requiresHuman nodes | S | Med | Needs casehub-work dep |
 | ops#7 | Deployment topology provisioning (drift self-healing) | M | Med | Unblocked by #38 |
 | #23 | CBR integration for desired-state evolution | M | High | Needs casehub-neural-text |
 | #24 | State-vector abstraction for QuarkMind | L | High | Different graph model needed |
@@ -30,5 +30,4 @@ Resume #27 (managed pipeline mode) — now unblocked. Run `/work` to resume from
 ## References
 
 - ARC42STORIES.MD: `ARC42STORIES.MD` (on main)
-- Garden: `GE-20260625-d09c57` — Worker migration three-module split gotcha
-- Extraction spec: `docs/superpowers/specs/2026-06-18-worker-foundation-extraction-design.md`
+- Blog: `2026-06-25-mdp02-clearing-the-backlog.md`
