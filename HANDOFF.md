@@ -1,3 +1,5 @@
+*Updated: ops#7 closed — removed from backlog.*
+
 # Handoff — casehub-desiredstate
 
 ## Last Session
@@ -22,7 +24,6 @@ Resume #27 (managed pipeline mode). Run `/work` — the branch `issue-27-managed
 |---|-------------|-------|------------|-------|
 | #27 | Managed pipeline mode — Quarkus Flow per stage | M | High | Branch exists; unblocked by #41 |
 | #43 | SimpleTransitionExecutor — create WorkItem for requiresHuman nodes | S | Med | Needs casehub-work dep |
-| ops#7 | Deployment topology provisioning (drift self-healing) | M | Med | Unblocked by #38 |
 | #23 | CBR integration for desired-state evolution | M | High | Needs casehub-neural-text |
 | #24 | State-vector abstraction for QuarkMind | L | High | Different graph model needed |
 | #25 | Desired-state as alternative case planning model | L | High | Depends on parent#233 |
