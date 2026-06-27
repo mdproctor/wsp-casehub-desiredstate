@@ -1,14 +1,12 @@
-*Updated: ops#7 closed — removed from backlog.*
-
 # Handoff — casehub-desiredstate
 
 ## Last Session
 
-Cleared the S/XS backlog: #34 (already fixed — closed), #44 (PLATFORM.md cross-repo update), #26 (PendingApproval on both ProvisionResult and DeprovisionResult), #36 (tenancyId through ActualStateAdapter and TransitionExecutor SPIs), #39 (pipeline wired to CaseTransitionExecutor). Also closed #40 — the Worker extraction epic is fully complete (all 7 cross-repo steps done; openclaw#37 and ops#8 were already resolved).
+Implemented #43 — `HumanNodeHandler` SPI in api/, `NoOpHumanNodeHandler` @DefaultBean in runtime/, `SimpleTransitionExecutor` delegates `requiresHuman` to handler. New `work-adapter/` module with `WorkItemHumanNodeHandler` creates WorkItems via `WorkItemCreator` SPI (casehub-work-api). Design went through two review rounds — caught a tier violation (work-adapter must depend on API only, not runtime) and an idempotency gap (`findActiveByCallerRef` not `findByCallerRef`). Both fixed. Upstream prerequisite (work#275) was already implemented in casehub-work.
 
 ## Immediate Next Step
 
-Resume #27 (managed pipeline mode). Run `/work` — the branch `issue-27-managed-pipeline-mode` exists in both repos but has stale #41 commits. Start #27's worker-api integration fresh from main.
+Resume #27 (managed pipeline mode). Run `/work` — branch `issue-27-managed-pipeline-mode` is on the pause stack.
 
 ## Cross-Module
 
@@ -22,8 +20,7 @@ Resume #27 (managed pipeline mode). Run `/work` — the branch `issue-27-managed
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
-| #27 | Managed pipeline mode — Quarkus Flow per stage | M | High | Branch exists; unblocked by #41 |
-| #43 | SimpleTransitionExecutor — create WorkItem for requiresHuman nodes | S | Med | Needs casehub-work dep |
+| #27 | Managed pipeline mode — Quarkus Flow per stage | M | High | Paused on stack; unblocked by #41 |
 | #23 | CBR integration for desired-state evolution | M | High | Needs casehub-neural-text |
 | #24 | State-vector abstraction for QuarkMind | L | High | Different graph model needed |
 | #25 | Desired-state as alternative case planning model | L | High | Depends on parent#233 |
@@ -31,4 +28,5 @@ Resume #27 (managed pipeline mode). Run `/work` — the branch `issue-27-managed
 ## References
 
 - ARC42STORIES.MD: `ARC42STORIES.MD` (on main)
-- Blog: `2026-06-25-mdp02-clearing-the-backlog.md`
+- Blog: `2026-06-28-mdp01-the-spi-that-was-missing.md`
+- Spec: `docs/superpowers/specs/2026-06-26-workitem-human-node-handler-design.md`
