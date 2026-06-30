@@ -17,7 +17,7 @@ Ship cross-repo prerequisites: work#281 (WorkItemRef.payload) and work#282 (Work
 
 - PLATFORM.md desiredstate row on casehub-parent `issue-293-channel-taxonomy` branch — needs pushing when that branch closes · XS · Low
 - WorkItemPendingApprovalHandler in work-adapter/ — BLOCKED on work#281/282 · M · Med
-- SituationSource types (#49) may belong in casehub-ras-api, not desiredstate-api — user flagged for RAS team review
+- SituationSource types (#49) **moved to casehub-ras-api** — branch `issue-22-move-situation-types` pushed (b89d997). Deleted ActiveSituation, SituationSource, SituationChangeEvent from api/, DefaultSituationSource from runtime/. Added ras-api dependency.
 
 ## What's Next
 
