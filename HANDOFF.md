@@ -2,7 +2,7 @@
 
 ## Last Session
 
-Closed #47 (CTE PendingApproval integration) and #48 (ARC42STORIES.MD placement). CTE's dispatch mechanism was non-functional — `desiredstate:dispatch` had no handler. Fixed via engine#590 (CallableDispatchRegistry — extensible workflow call dispatch). DesiredStateDispatch handles the full PendingApproval lifecycle within workflow steps. CTE pre-filters approval-gated nodes before case creation. Also placed PendingApproval as Chapter 8 in ARC42STORIES.MD with new L7 (Work Adapter) layer.
+Closed #18 (multi-provisioner dispatch), #19 (per-type reconciliation scheduling), #45 (PLATFORM.md SPI list), #49 (SituationSource — already done), #50 (Worker capability migration — already done). Made the runtime type-aware: `NodeProvisionerRouter` dispatches to provisioners by `NodeType`, interval-grouped timers replace the fixed 5-minute resync, CAS merge-and-retry fixes the mutation race (GE-20260616-3d2605). Preferences integration for per-NodeType resync overrides via `DurationPreference`. `ReactiveNodeProvisioner` deleted (zero implementations). Cross-repo: `DurationPreference` in casehub-platform-api, ops#33 provisioner migrations.
 
 ## Immediate Next Step
 
@@ -17,14 +17,15 @@ Ship cross-repo prerequisites: work#281 (WorkItemRef.payload) and work#282 (Work
 
 - PLATFORM.md desiredstate row on casehub-parent `issue-293-channel-taxonomy` branch — needs pushing when that branch closes · XS · Low
 - WorkItemPendingApprovalHandler in work-adapter/ — BLOCKED on work#281/282 · M · Med
-- SituationSource types (#49) **moved to casehub-ras-api** — branch `issue-22-move-situation-types` pushed (b89d997). Deleted ActiveSituation, SituationSource, SituationChangeEvent from api/, DefaultSituationSource from runtime/. Added ras-api dependency.
+- SituationSource types — moved to casehub-ras-api on branch `issue-22-move-situation-types` (b89d997) · needs merging
 
 ## What's Next
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
-| #45 | PLATFORM.md — add PendingApprovalHandler to SPI list | XS | Low | Unblocked |
-| #46 | Pipeline example — PendingApproval gate in three-tier escalation | S | Low | Unblocked |
+| #51 | ActualStateAdapter routing for multi-domain | M | Med | Natural follow-on to #18 |
+| #52 | Routing for remaining CDI-ambiguous SPIs | M | Med | GoalCompiler, EventSource, FaultPolicy |
+| #46 | Pipeline example — PendingApproval gate | S | Low | Unblocked |
 | #27 | Managed pipeline mode — Quarkus Flow per stage | M | High | Paused on stack |
 | #23 | CBR integration for desired-state evolution | M | High | Needs casehub-neural-text |
 | #24 | State-vector abstraction for QuarkMind | L | High | Different graph model |
@@ -32,6 +33,6 @@ Ship cross-repo prerequisites: work#281 (WorkItemRef.payload) and work#282 (Work
 
 ## References
 
-- Spec: `docs/superpowers/specs/2026-06-29-cte-pending-approval-design.md`
-- Plan: `docs/superpowers/plans/2026-06-30-cte-pending-approval.md`
-- Garden: GE-20260629-45f4be (callerRef blocking), GE-20260629-db82b4 (reject reason audit-only)
+- Spec: `docs/superpowers/specs/2026-07-01-type-aware-runtime-design.md`
+- Plan: `docs/superpowers/plans/2026-07-01-type-aware-runtime.md`
+- Garden: GE-20260701-82909e (ScheduledFuture map replacement race)
