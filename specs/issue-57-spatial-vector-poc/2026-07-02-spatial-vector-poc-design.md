@@ -22,7 +22,7 @@ graph model's limits.
 4. **Strategic pivot** — can the system recognise "this whole approach is failing"
    and switch to an alternative?
 
-Defense posture exercises layers 1–2. Attack waypoints exercises 1–3. Force
+Defense posture exercises layers 1–2. Attack waypoints exercises 1–2. Force
 distribution exercises 1–4, with the strategic pivot as the capstone.
 
 The hypothesis: group nodes will handle topology and sequencing (layers 1–2) but
@@ -393,10 +393,10 @@ io.casehub.desiredstate.example.spatial
 work for static rebalancing. GoalCompiler recompilation is viable for discovery-driven
 growth but verbose. No breakage expected.
 
-**Scenario 2 (Attack Waypoints) — layers 1–3:** Graph model handles topology and
-sequencing (layers 1–2). Layer 3 shows coupling: fault policies that need to redistribute
-forces along the attack column require intimate knowledge of zone internals. The fault
-policy interface is too opaque for spatial reasoning.
+**Scenario 2 (Attack Waypoints) — layers 1–2:** Graph model handles topology and
+sequencing. Dependency chains work for sequential advance, orphan removal handles path
+rerouting cleanly. Zone rebalancing in a linear chain requires either full recompilation
+or N+1 incremental mutations — the same "verbose but functional" finding as scenario 1.
 
 **Scenario 3 (Force Distribution) — layers 1–4:** Layers 1–2 may work better than
 expected (ratio invariants enforced by GoalCompiler + provisioner dependency ordering).
