@@ -58,9 +58,6 @@ A shared 10x10 grid foundation all three scenarios build on.
 - `height` (0, 1, 2)
 - `terrainType` — `OPEN`, `CLIFF`, `RAMP`
 
-**Movement rule:** A unit can move from cell A to adjacent cell B (orthogonal only)
-if B is not CLIFF and `|A.height - B.height| <= 1`.
-
 **Fog of war:** `FogOfWar` tracks revealed cells. Vision range is configurable
 (default 2). When a unit occupies a cell, all cells within `visionRange` manhattan
 distance are revealed.
@@ -142,7 +139,10 @@ defense budget, zone definitions) and compiles to CELL + SCOUT + ZONE + UNIT nod
 1. Compile initial graph → provision base area + scouts.
 2. Scouts reveal new terrain → recompile with updated knowledge → reconcile (graph growth).
 3. **Inject: "8 of 10 units at north-perimeter destroyed"** → ActualStateAdapter reports
-   DRIFTED/ABSENT → reconciliation detects drift → zone rebalances.
+   units as ABSENT → planner re-provisions them with original specs. Zone reports DRIFTED
+   until all units are restored. This is restoration, not rebalancing — the default runtime
+   behavior for ABSENT nodes. Rebalancing (redistributing among fewer units) would require
+   GoalCompiler recompilation with updated zone definitions.
 4. **Inject: "enemy fortification spotted at (4,3)"** → cell spec gains tactical weight →
    zone priorities shift, forces redistribute.
 5. **Inject: "ramp collapsed at (2,5)"** → terrain change → forces depending on that route
@@ -212,15 +212,33 @@ assigns weight to cells based on height, adjacency to cliffs, unexplored neighbo
 
 **Layer 3 test (fault policy coupling):**
 
-5. **Inject: losses at (5,1)** — unit destroyed. `ZoneRebalanceFaultPolicy` fires.
-   This concrete policy attempts redistribution from `(FaultEvent, DesiredStateGraph)` alone:
-   (a) find the zone owning the destroyed unit via `graph.dependenciesOf(unitId)` filtered
-   for ZONE-type nodes, (b) enumerate sibling units via `graph.dependentsOf(zoneId)` filtered
-   for UNIT-type nodes, (c) recompute allocation ratios excluding the destroyed cell,
-   (d) emit `UpdateNode` mutations for the zone spec and each sibling unit spec.
-   The policy either succeeds cleanly (disproving the hypothesis), succeeds with excessive
-   coupling to zone internals (documenting what domain knowledge is required), or fails at a
-   specific step — documenting exactly where the graph API becomes insufficient.
+5. **Inject: losses at (5,1)** — unit destroyed in BattlefieldWorld. The reconciliation
+   loop's actual path: ActualStateAdapter reports the unit as ABSENT and the zone as DRIFTED.
+   `detectDrift()` creates `FaultEvent(zoneId, NODE_DEGRADED, ...)` — the fault is on the
+   **zone**, not the unit. `ZoneRebalanceFaultPolicy` receives this event and attempts
+   redistribution from `(FaultEvent, DesiredStateGraph)` alone:
+
+   (a) The policy knows the zone is degraded but NOT why — the FaultEvent carries the zone's
+   NodeId and a generic detail string, not which child unit was lost. The `FaultPolicy` SPI
+   receives `(FaultEvent, DesiredStateGraph)` but not `ActualState`. To determine which units
+   are missing, the policy would need actual state — which it doesn't have.
+
+   (b) Even if the policy could identify the missing unit, it faces a planner conflict:
+   the `TransitionPlanner` independently detects the destroyed unit as ABSENT and schedules
+   it for re-provisioning. The policy's redistribution mutations and the planner's restoration
+   compete. The policy might update the zone's allocation to exclude cell (5,1), but the
+   planner will still re-provision the unit with whatever `UnitSpec` is in the desired graph.
+
+   (c) The policy cannot remove the destroyed unit from the desired graph — `RemoveNode`
+   destroys dependency edges (§8 anti-pattern in ARC42STORIES), making the topology
+   unrecoverable without re-invoking the GoalCompiler.
+
+   This step produces three concrete findings: the fault policy SPI lacks actual state
+   access (information gap), fault policies and the planner conflict on the same nodes
+   (coordination gap), and the graph model cannot express "this node should no longer
+   exist" without destroying topology (mutation gap). These are stronger evidence for a
+   constraint/evaluation model than the originally hypothesized "reverse-engineering zone
+   structure" difficulty.
 
 **Layer 4 tests (strategic pivot):**
 
@@ -253,13 +271,26 @@ complete teardown and rebuild, not a rebalance. Correct but costly and disruptiv
 
 **Layer 3 — fault policy coupling (likely breaks):**
 
-**3. Fault policies need zone knowledge:** When losses occur, a fault policy that wants
-to redistribute forces must emit N+1 mutations (update zone spec + update each child
-unit spec). It needs intimate knowledge of zone internals — which cells belong to which
-zone, what the current ratios are, what the new ratios should be. The fault policy
-interface receives `(FaultEvent, DesiredStateGraph)` — the graph is opaque, with no
-concept of zone membership or ratio semantics. The policy must reverse-engineer the
-zone structure from raw graph traversal.
+**3. Fault policy information gap:** The `FaultPolicy` SPI receives
+`(FaultEvent, DesiredStateGraph)` but not `ActualState`. When the zone is DRIFTED, the
+policy knows something is wrong but cannot determine which child unit was lost without
+actual state access. The FaultEvent carries the zone's NodeId and a generic detail
+string — not enough to diagnose the specific failure.
+
+**9. Fault policy / planner conflict:** The fault policy and the `TransitionPlanner`
+independently respond to the same situation. The policy fires during `detectDrift()`
+and may emit mutations to redistribute force. The planner runs AFTER drift detection
+and sees the destroyed unit as ABSENT → schedules re-provisioning. The policy's
+redistribution and the planner's restoration compete: the policy may update the zone's
+allocation, but the planner will still re-provision the destroyed unit with whatever
+spec is in the desired graph. There is no mechanism for the fault policy to signal
+"do not re-provision this node" — the planner has no concept of policy intent.
+
+**10. RemoveNode destroys topology:** A fault policy that wants to exclude a destroyed
+unit from the zone cannot use `RemoveNode` — it destroys all dependency edges (per §8
+anti-pattern in ARC42STORIES), making the topology unrecoverable without re-invoking
+the GoalCompiler. The policy cannot express "this node should no longer exist" without
+collateral damage to the graph structure.
 
 **Layer 4 — strategic pivot (genuinely breaks):**
 
@@ -294,9 +325,10 @@ any component that reasons about composite node state.
 
 Layers 3–4 provide the concrete evidence for a constraint/evaluation model. The
 gap is not in the graph's ability to represent spatial state, but in the system's
-ability to reason about aggregate outcomes and strategic alternatives. Findings 7–8
-identify specific capabilities that model would need: group-membership queries and
-composite-aware state reading.
+ability to reason about aggregate outcomes and strategic alternatives. Findings 7–10
+identify specific capabilities that model would need: group-membership queries (7),
+composite-aware state reading (8), fault policy access to actual state (9), and
+coordinated policy/planner intent (9–10).
 
 ## ANSI Terminal Renderer
 
