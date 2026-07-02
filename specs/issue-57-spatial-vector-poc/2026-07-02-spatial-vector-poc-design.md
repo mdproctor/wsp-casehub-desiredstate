@@ -30,6 +30,25 @@ the model has no mechanism for aggregate subgraph evaluation or strategic
 alternatives (layers 3–4). The documented failure modes become evidence for a
 constraint/evaluation model — not speculation, but test cases.
 
+## Relationship to Other POCs
+
+Issue #57 recommends ordering: #58 (lifecycle) → #56 (GoalCompiler) → #57 (spatial).
+This POC is designed to be evaluated independently, but its findings inform both:
+
+- **#58 (lifecycle):** Scenario 2's path rerouting — old waypoints orphaned, deprovisioned,
+  new nodes provisioned — exercises a lightweight form of lifecycle transition. If #58
+  establishes a formal completion/successor mechanism, scenario 2's graph swap would use
+  it rather than raw `updateDesired()`.
+- **#56 (GoalCompiler):** This POC tests the graph model at the tactical level — cells,
+  units, zones. Epic #24's strategic level (nodes as strategic goals, provisioners as
+  tactical plans) is #56's domain. This POC's findings feed #56: if spatial state needs
+  a constraint/evaluation model, then strategic nodes managing spatial resources need it too.
+
+The POC does not depend on #58 or #56's conclusions. All scenarios use `updateDesired()`
+directly for graph swaps, and GoalCompiler compilation is hand-coded domain logic (not
+planner-backed). If #58 or #56 produce different conclusions than expected, this POC's
+spatial findings remain independently valid.
+
 ## Terrain Model
 
 A shared 10x10 grid foundation all three scenarios build on.
@@ -44,8 +63,7 @@ if B is not CLIFF and `|A.height - B.height| <= 1`.
 
 **Fog of war:** `FogOfWar` tracks revealed cells. Vision range is configurable
 (default 2). When a unit occupies a cell, all cells within `visionRange` manhattan
-distance with line-of-sight are revealed. Height affects vision — a unit at height 2
-can see over height 1; a unit at height 0 cannot see past height 2.
+distance are revealed.
 
 The grid is pre-built (the map exists), but knowledge of the grid is progressive
 (fog). Scenarios translate terrain into graph nodes.
@@ -65,7 +83,10 @@ The grid is pre-built (the map exists), but knowledge of the grid is progressive
 
 **`CellSpec`** — `row`, `col`, `height`, `terrainType`
 
-**`UnitSpec`** — `cellId` (NodeId of occupied cell), `strength` (int)
+**`UnitSpec`** — `cellId` (NodeId of occupied cell), `strength` (int — computed by
+GoalCompiler as `zone.totalForce × zone.allocation.get(cellId)`, not independently set.
+The zone allocation is authoritative; UnitSpec carries the provisioned value for
+ActualStateAdapter comparison.)
 
 **`ScoutSpec`** — `cellId` (NodeId of occupied cell), `visionRange` (int)
 
@@ -94,6 +115,16 @@ placed units, zone allocations. Shared across scenarios, configured differently 
 - SCOUT: places scout, updates fog (reveals within vision range)
 - ZONE: validates ratios, computes absolute values from totalForce × ratios
 - UNIT: places unit with strength from zone allocation
+
+### Graph Swap Behavior
+
+When scenarios call `ReconciliationLoop.updateDesired()` during active reconciliation,
+the runtime's atomic reference guarantees: the current cycle completes against the
+previous graph, and the next cycle picks up the new graph. Orphaned nodes (provisioned
+from the old graph, absent in the new) are detected as "actual without desired" and
+deprovisioned in the subsequent reconciliation cycle — not atomically with the graph
+swap. Scenario test flows that swap graphs (scenario 1 step 2, scenario 2 steps 2–3,
+scenario 3 step 2) verify this orphan-cleanup behavior.
 
 ## Scenario 1: Defense Posture
 
@@ -140,6 +171,9 @@ depends on waypoint N.
 3. **Inject: "ramp at (3,6) collapsed"** → route invalidated. Recompile → new path. Old
    waypoint nodes orphaned → deprovisioned. New nodes added → provisioned.
 4. **Inject: "heavy losses at waypoint (5,7)"** → zone rebalances attack column.
+   Test via both paths: GoalCompiler recompilation (structural) and direct `UpdateNode`
+   mutations on zone spec + child unit specs (parametric). If incremental mutation works
+   cleanly, ratio changes don't require full recompilation.
 5. **Inject: "high ground at (7,8) revealed as occupied"** → waypoint spec requires more
    force. Ripple through column allocation.
 
@@ -169,16 +203,24 @@ assigns weight to cells based on height, adjacency to cliffs, unexplored neighbo
 2. **Inject: frontier expands** — scouting reveals 3 new cells beyond frontier. Old frontier
    becomes interior. Zone spec must be rebuilt for new frontier.
 3. **Inject: priority shift** — enemy fortification spotted, adjacent cell weights double.
-   Zone ratios change → every unit gets new strength.
+   Zone ratios change → every unit gets new strength. Test via both paths: GoalCompiler
+   recompilation (full graph rebuild) and incremental `UpdateNode` mutations (zone spec +
+   N child unit specs). If incremental mutation works cleanly for parameter changes, the
+   "verbose but functional" finding narrows to topology changes only.
 4. **Inject: zone split** — frontier too wide for one zone. Single ZONE replaced by two ZONEs,
    each with subset of cells and own ratio policy. Structural graph change.
 
 **Layer 3 test (fault policy coupling):**
 
-5. **Inject: losses at (5,1)** — unit destroyed. Fault policy fires. To redistribute
-   remaining force, the policy must understand zone membership, current ratios, and
-   recompute allocations. Test: can a fault policy do this from `(FaultEvent, DesiredStateGraph)`
-   alone, or does it need zone-specific knowledge injected?
+5. **Inject: losses at (5,1)** — unit destroyed. `ZoneRebalanceFaultPolicy` fires.
+   This concrete policy attempts redistribution from `(FaultEvent, DesiredStateGraph)` alone:
+   (a) find the zone owning the destroyed unit via `graph.dependenciesOf(unitId)` filtered
+   for ZONE-type nodes, (b) enumerate sibling units via `graph.dependentsOf(zoneId)` filtered
+   for UNIT-type nodes, (c) recompute allocation ratios excluding the destroyed cell,
+   (d) emit `UpdateNode` mutations for the zone spec and each sibling unit spec.
+   The policy either succeeds cleanly (disproving the hypothesis), succeeds with excessive
+   coupling to zone internals (documenting what domain knowledge is required), or fails at a
+   specific step — documenting exactly where the graph API becomes insufficient.
 
 **Layer 4 tests (strategic pivot):**
 
@@ -237,31 +279,30 @@ same approach) are treated as independent events. There's no mechanism to correl
 them and recognise a pattern — "we keep losing units on this approach" is invisible
 to the per-node fault model.
 
+**7. Group-membership gap:** The graph API has no concept of group membership.
+`DesiredStateGraph` offers `dependenciesOf(node)` and `dependentsOf(node)` for edge
+traversal, but no `membersOf(group)` or `groupOf(member)` query. Composite node
+semantics (zone → member cells, zone → allocated units) are enforced entirely by
+domain convention — fragile and convention-dependent. This is a specific capability
+a constraint/evaluation model would need.
+
+**8. ActualStateAdapter coupling:** The adapter for composite nodes inherits the same
+coupling problem as fault policies. Computing zone status (PRESENT vs DRIFTED) requires
+the adapter to understand zone structure, ratio semantics, and the relationship between
+zone specs and unit specs. The "opaque graph" problem extends beyond fault policies to
+any component that reasons about composite node state.
+
 Layers 3–4 provide the concrete evidence for a constraint/evaluation model. The
 gap is not in the graph's ability to represent spatial state, but in the system's
-ability to reason about aggregate outcomes and strategic alternatives.
+ability to reason about aggregate outcomes and strategic alternatives. Findings 7–8
+identify specific capabilities that model would need: group-membership queries and
+composite-aware state reading.
 
 ## ANSI Terminal Renderer
 
-**`GridRenderer`** — renders `BattlefieldWorld` as ASCII art to the terminal. Uses
-ANSI escape codes (`\033[H`) to repaint in place. Each reconciliation step overwrites
-the previous frame.
-
-Configurable step delay (default 500ms) for animation. Set to 0 for CI. Can dump
-frames to log for static record.
-
-```
-Step 3: Scout reveals northeast (after reconciliation)
-   0  1  2  3  4  5  6  7  8  9
-0 [B] .  .  .  ░░ ░░ ░░ ░░ ░░ ░░
-1  .  .  .  .  ░░ ░░ ░░ ░░ ░░ ░░
-2  . U5  . ▲2  .  ░░ ░░ ░░ ░░ ░░
-3  .  . ▲2 ▲2  .  .  ░░ ░░ ░░ ░░
-4 U3  . ▲2  .  .  .  S  ░░ ░░ ░░
-  ...
-Legend: [B]=base  U5=unit(str:5)  S=scout  ▲2=height:2  ░░=fog  .=revealed
-Zone: north-perimeter [U5,U3] ratio:0.6/0.4  budget:8
-```
+`GridRenderer` provides ASCII art visualization of `BattlefieldWorld` for debugging,
+with step-by-step animation of reconciliation cycles. Configurable step delay (default
+500ms, 0 for CI).
 
 ## Module Structure
 
@@ -274,7 +315,7 @@ io.casehub.desiredstate.example.spatial
 │   ├── TerrainGrid
 │   ├── TerrainCell          — record: row, col, height, terrainType
 │   ├── TerrainType          — enum: OPEN, CLIFF, RAMP
-│   └── FogOfWar             — revealed cells, vision range, line-of-sight
+│   └── FogOfWar             — revealed cells, vision range
 ├── world/
 │   ├── BattlefieldWorld
 │   ├── BattlefieldActualStateAdapter
@@ -293,7 +334,8 @@ io.casehub.desiredstate.example.spatial
 │   └── AttackGoalCompiler
 ├── distribution/
 │   ├── DistributionBlueprint
-│   └── DistributionGoalCompiler
+│   ├── DistributionGoalCompiler
+│   └── ZoneRebalanceFaultPolicy
 └── render/
     └── GridRenderer         — ANSI in-place repaint
 ```
@@ -335,10 +377,38 @@ reason about whether an entire approach is succeeding or failing.
 detect patterns across failures, and choose between alternative approaches. This is
 the evidence for a constraint/evaluation model.
 
+## Conditional Deliverables
+
+If layers 3–4 fail as expected, the POC produces these deliverables as findings
+(per issue #57 acceptance criteria):
+
+**Interface sketch for constraint/evaluation model:** Based on the specific failure
+points documented by the `ZoneRebalanceFaultPolicy` and strategic pivot tests, sketch
+what an evaluation SPI would look like — aggregate subgraph health assessment,
+correlated fault detection, and alternative-plan evaluation. The sketch targets the
+gaps the POC identified, not a generic solution.
+
+**Reconciliation/drift/fault semantics for the new model:** Define what drift means
+for aggregate evaluation ("this approach is failing" vs "this node drifted"), what
+fault means at the strategic level (pattern of failures vs individual failure), and
+how reconciliation interacts with plan-level evaluation.
+
+**Runtime factoring cost assessment:** Using epic #24's coupling analysis — 
+`FaultPolicyEngine` (loosely coupled, interface-based), `EventSource`/`SituationSource`
+(fully generic), `ReconciliationLoop` (tightly graph-coupled), `TransitionPlanner`
+(assumes DAG, Kahn's algorithm) — assess what's shared across representations, what
+needs replacement, and what the factoring boundary looks like.
+
+If the graph model handles all layers cleanly, these deliverables are not produced.
+The POC tests the hypothesis honestly — the deliverables are conditional on the
+findings, not predetermined.
+
 ## Out of Scope
 
-- No constraint model implementation — the POC identifies the need
-- No runtime changes — uses runtime as-is
+- No constraint model implementation — the POC identifies the need; follow-up
+  tracked as #59 (conditional on POC findings)
+- No runtime changes — uses runtime as-is; if findings indicate runtime factoring is
+  needed, that work is tracked as #60
 - No pathfinding algorithm — waypoint paths hand-placed in blueprints
 - No combat resolution or AI opponent — injected events only
 - No persistence — in-memory per test
