@@ -179,9 +179,9 @@ depends on waypoint N.
 
 **Evaluates:** Dependency chains for sequential advance (layer 1). Orphan removal + new
 node creation for path rerouting (layer 1). Zone group nodes for linear chain allocation
-(layer 2). Dynamic rebalancing — can a fault policy redistribute forces along the attack
-column without knowing zone internals? (layer 3). Expected: layers 1–2 work, layer 3
-shows coupling between fault policy and zone structure.
+(layer 2). Rebalancing in a linear dependency chain requires either full recompilation or
+N+1 incremental mutations — the same "verbose but functional" finding from layer 2,
+applied to a sequential topology. Expected: layers 1–2 work.
 
 ## Scenario 3: Force Distribution as Ratios
 
@@ -243,9 +243,10 @@ assigns weight to cells based on height, adjacency to cliffs, unexplored neighbo
 **Layer 4 tests (strategic pivot):**
 
 6. **Inject: repeated losses across frontier** — 3 consecutive cycles, each destroying
-   units in the same zone. Individually, each is handled by the fault policy (rebuild).
-   But cumulatively, the approach is failing. Test: assert that no existing mechanism
-   detects the pattern or suggests an alternative.
+   units in the same zone. Individually, each loss is handled by the runtime — the planner
+   restores destroyed units with original specs (step 5 showed the fault policy cannot
+   redistribute). But cumulatively, the approach is failing. Test: assert that no existing
+   mechanism detects the pattern or suggests an alternative.
 7. **Inject: "enemy has fortified heavily, approach from south instead"** — the entire
    frontier subgraph must be abandoned and a new frontier compiled in a different area.
    The GoalCompiler can produce the new graph. The reconciliation loop can transition.
@@ -325,10 +326,10 @@ any component that reasons about composite node state.
 
 Layers 3–4 provide the concrete evidence for a constraint/evaluation model. The
 gap is not in the graph's ability to represent spatial state, but in the system's
-ability to reason about aggregate outcomes and strategic alternatives. Findings 7–10
-identify specific capabilities that model would need: group-membership queries (7),
-composite-aware state reading (8), fault policy access to actual state (9), and
-coordinated policy/planner intent (9–10).
+ability to reason about aggregate outcomes and strategic alternatives. Findings 3,
+7–10 identify specific capabilities that model would need: fault policy access to
+actual state (3), group-membership queries (7), composite-aware state reading (8),
+coordinated policy/planner intent (9), and safe node removal (10).
 
 ## ANSI Terminal Renderer
 
