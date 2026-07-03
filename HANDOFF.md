@@ -2,11 +2,11 @@
 
 ## Last Session
 
-Pure R&D session exploring #24 (QuarkMind desired-state integration). No code written. Reframed #24 from "add a DesiredStateVector data type" to "desired state as a planning paradigm" — desired state is simplified classical planning (STRIPS/HTN) reinvented by engineers. Promoted #24 to epic with three POC sub-issues: #58 (lifecycle transitions), #56 (planner-backed GoalCompiler), #57 (spatial/vector stress test). Recommended ordering: #58 → #56 → #57. ARC42STORIES.MD stale scan fixed 3 references where #47 was closed but still marked pending.
+Implemented #57 (spatial/vector POC) — new `examples/spatial/` module with 10x10 terrain grid, fog of war, three evaluation scenarios (defense posture, attack waypoints, force distribution). 43 tests, all passing. Key finding: graph model handles spatial topology (layers 1-2) but cannot reason about aggregate outcomes or strategic alternatives (layers 3-4). Evidence for constraint/evaluation model documented as test assertions. Landed as `ead4861` on main. Design-reviewed (5 rounds, 21 issues, $20.80). Garden entry GE-20260703-b2073a (TransitionPlanner UnknownSpec gotcha).
 
 ## Immediate Next Step
 
-Start #57 (spatial/vector stress test) — model a "defend this region" scenario as a DesiredStateGraph with region-as-node, strength-as-spec. Try the graph model first. Full context in the issue body. Run `/work` to begin.
+#59 and #60 are conditional on #57's findings — now unblocked. #59 (constraint/evaluation model design) is the natural follow-on: design the SPI that addresses the three failure modes documented in ForceDistributionTest (fault policy information gap, planner/policy conflict, no aggregate evaluation). Run `/work` to begin.
 
 ## Cross-Module
 
@@ -20,9 +20,10 @@ Start #57 (spatial/vector stress test) — model a "defend this region" scenario
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
-| #58 | POC: desired state lifecycle transitions | S | Med | Prerequisite for #56 and #57 |
+| #59 | Design constraint/evaluation model for aggregate subgraph reasoning | M | High | Unblocked by #57 findings — conditional deliverable |
+| #60 | Assess runtime factoring cost for pluggable state representations | M | Med | Unblocked by #57 findings |
+| #58 | POC: desired state lifecycle transitions | S | Med | Prerequisite for #56 |
 | #56 | POC: planner-backed GoalCompiler | M | High | Highest architectural value |
-| #57 | POC: spatial/vector stress test | M | High | Most uncertain — graph model might suffice |
 | #51 | ActualStateAdapter routing for multi-domain | M | Med | Natural follow-on to #18 |
 | #52 | Routing for remaining CDI-ambiguous SPIs | M | Med | GoalCompiler, EventSource, FaultPolicy |
 | #46 | Pipeline example — PendingApproval gate | S | Low | Unblocked |
@@ -32,6 +33,7 @@ Start #57 (spatial/vector stress test) — model a "defend this region" scenario
 
 ## References
 
-- Epic: `casehubio/casehub-desiredstate#24` — full conversation analysis and coupling matrix
-- Blog: `blog/2026-07-02-mdp01-the-plan-that-was-already-there.md`
-- Garden: GE-20260701-82909e (ScheduledFuture map replacement race)
+- Spec: `docs/superpowers/plans/2026-07-02-spatial-vector-poc.md` (project)
+- Blog: `blog/2026-07-03-mdp01-where-the-graph-runs-out.md`
+- Garden: GE-20260703-b2073a (TransitionPlanner UnknownSpec gotcha)
+- Design review: `~/adr/casehub-desiredstate/spatial-vector-poc-20260702-150847/`
