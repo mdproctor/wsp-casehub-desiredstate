@@ -1,5 +1,7 @@
 # Handoff — casehub-desiredstate
 
+*Updated: #60 closed — removed from backlog.*
+
 ## Last Session
 
 Designed, reviewed, and implemented #46 (PendingApproval gate), #58 (lifecycle
@@ -13,8 +15,7 @@ Landed as `66d2113` on main.
 
 ## Immediate Next Step
 
-Pick next from What's Next table. #60 (runtime factoring cost) is informed by
-this session's lifecycle work. #51 (ActualStateAdapter routing) continues the
+Pick next from What's Next table. #51 (ActualStateAdapter routing) continues the
 multi-domain thread.
 
 ## Cross-Module
@@ -34,7 +35,6 @@ multi-domain thread.
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
-| #60 | Assess runtime factoring cost for alternative state representations | M | Med | Informed by #58/#59 findings |
 | #51 | ActualStateAdapter routing for multi-domain | M | Med | Follow-on to #18 |
 | #52 | Routing for remaining CDI-ambiguous SPIs | M | Med | GoalCompiler, EventSource, FaultPolicy |
 | #27 | Managed pipeline mode — Quarkus Flow per stage | M | High | Paused on stack |
