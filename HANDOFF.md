@@ -1,22 +1,18 @@
 # Handoff — casehub-desiredstate
 
-*Updated: #60 closed — removed from backlog.*
-
 ## Last Session
 
-Designed, reviewed, and implemented #46 (PendingApproval gate), #58 (lifecycle
-transitions), #56 (planner-backed GoalCompiler). GoalCompiler SPI returns
-`CompilationResult` (sealed: `SingleGraph` | `Lifecycle`). New `LifecycleManager`
-in runtime orchestrates CAS-based phase transitions via `ReconciliationListener`.
-Pipeline example gains per-stage approval gate. New `examples/expansion/` module
-with HTN-backed GoalCompiler, build→defend lifecycle, SituationRecompiler-driven
-replanning. Design-reviewed (4 rounds, $15.73). 9 implementation tasks via SDD.
-Landed as `66d2113` on main.
+Multi-domain SPI routing (#51, #52). ActualStateAdapterRouter dispatches
+readActual() by NodeType with orphan detection. MergedEventSource composes
+domain EventSource streams with per-stream error isolation. Scope analysis
+confirmed FaultPolicy and GoalCompiler need no routing. DesiredStateGraph
+gains filterByTypes() default method. Design-reviewed (3 rounds, $12.62).
+Landed as `adfaf5f` on main.
 
 ## Immediate Next Step
 
-Pick next from What's Next table. #51 (ActualStateAdapter routing) continues the
-multi-domain thread.
+Pick next from What's Next table. #27 (managed pipeline mode) is the
+highest-value remaining work. Run `/work` to start a branch.
 
 ## Cross-Module
 
@@ -29,20 +25,18 @@ multi-domain thread.
 
 ## What's Left
 
-*Unchanged — retrieve with: `git show HEAD~1:HANDOFF.md`*
+Nothing trailing.
 
 ## What's Next
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
-| #51 | ActualStateAdapter routing for multi-domain | M | Med | Follow-on to #18 |
-| #52 | Routing for remaining CDI-ambiguous SPIs | M | Med | GoalCompiler, EventSource, FaultPolicy |
 | #27 | Managed pipeline mode — Quarkus Flow per stage | M | High | Paused on stack |
 | #23 | CBR integration for desired-state evolution | M | High | Slots into RAS Ganglia now |
 | #25 | Desired-state as alternative case planning model | L | High | Depends on parent#233 |
 
 ## References
 
-- Spec: `docs/specs/2026-07-06-pending-approval-lifecycle-planner-design.md`
-- Plan: `docs/plans/2026-07-06-pending-approval-lifecycle-planner.md`
-- Design review: `~/adr/casehub-desiredstate/pending-approval-lifecycle-planner-20260706-172800/`
+- Spec: `docs/specs/2026-07-08-multi-domain-spi-routing-design.md`
+- Plan: `docs/plans/2026-07-08-multi-domain-spi-routing.md`
+- Design review: `~/adr/casehub-desiredstate/multi-domain-spi-routing-20260709-140534/`
