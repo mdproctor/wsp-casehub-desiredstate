@@ -17,12 +17,12 @@ stack — resume with `/work` or start something new.
 
 ## Cross-Module
 
-**We're blocking:**
-- `casehub-engine-flow` — CaseTransitionExecutor depends on `CallableDispatchRegistry` SPI · S · Low
-- `casehub-work` — WorkItem-backed handlers depend on `WorkItemCreator` SPI · S · Low
-- `casehub-ops` — GoalCompiler/SituationRecompiler migration (4 implementations, now with ActualState param) · S · Med
+**Blocked by:**
+- `casehub-engine-flow` — CaseTransitionExecutor needs `CallableDispatchRegistry` SPI · S · Low
+- `casehub-work` — WorkItem-backed handlers need `WorkItemCreator` SPI · S · Low
 
-**Blocked by:** nothing
+**Notify:**
+- `casehub-ops` — SituationRecompiler SPI signature changed (ActualState param + priority()); 4 implementations need updating · S · Low
 
 ## What's Left
 
