@@ -2,41 +2,44 @@
 
 ## Last Session
 
-Multi-domain SPI routing (#51, #52). ActualStateAdapterRouter dispatches
-readActual() by NodeType with orphan detection. MergedEventSource composes
-domain EventSource streams with per-stream error isolation. Scope analysis
-confirmed FaultPolicy and GoalCompiler need no routing. DesiredStateGraph
-gains filterByTypes() default method. Design-reviewed (3 rounds, $12.62).
-Landed as `adfaf5f` on main.
+CBR integration (#23). Three SPIs (ConfigurationRetriever, ConfigurationAdapter,
+CbrConfiguration) in api/. CbrFaultPolicy (tactical — per-node mutations) and
+CbrSituationRecompiler (strategic — whole-graph replacement via SituationRecompilerEngine
+chain-of-responsibility) in runtime/. SituationRecompiler SPI evolved with ActualState
+parameter and priority() method. GraphDiff converts adapted graph fragments to mutations
+scoped by NodeType. Design-reviewed (3 rounds, $12.88, 16 issues, all resolved).
+Landed as `12d4f4b` on main.
 
 ## Immediate Next Step
 
-Pick next from What's Next table. #27 (managed pipeline mode) is the
-highest-value remaining work. Run `/work` to start a branch.
+Pick next from What's Next table. #27 (managed pipeline mode) is paused on the
+stack — resume with `/work` or start something new.
 
 ## Cross-Module
 
 **We're blocking:**
 - `casehub-engine-flow` — CaseTransitionExecutor depends on `CallableDispatchRegistry` SPI · S · Low
 - `casehub-work` — WorkItem-backed handlers depend on `WorkItemCreator` SPI · S · Low
-- `casehub-ops` — GoalCompiler/SituationRecompiler migration (4 implementations) · S · Low
+- `casehub-ops` — GoalCompiler/SituationRecompiler migration (4 implementations, now with ActualState param) · S · Med
 
 **Blocked by:** nothing
 
 ## What's Left
 
-Nothing trailing.
+- `#76` — CBR Revise step: outcome feedback loop to case store · M · High
+- `#77` — Promote DoublePreference/IntPreference to casehub-platform-api · S · Low
 
 ## What's Next
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
 | #27 | Managed pipeline mode — Quarkus Flow per stage | M | High | Paused on stack |
-| #23 | CBR integration for desired-state evolution | M | High | Slots into RAS Ganglia now |
+| #23 follow-on | Wire CBR into pipeline or expansion example | S | Med | Needs domain ConfigurationRetriever impl |
 | #25 | Desired-state as alternative case planning model | L | High | Depends on parent#233 |
 
 ## References
 
-- Spec: `docs/specs/2026-07-08-multi-domain-spi-routing-design.md`
-- Plan: `docs/plans/2026-07-08-multi-domain-spi-routing.md`
-- Design review: `~/adr/casehub-desiredstate/multi-domain-spi-routing-20260709-140534/`
+- Spec: `docs/specs/2026-07-10-cbr-integration-design.md`
+- Plan: `docs/plans/2026-07-12-cbr-integration.md`
+- Design review: `~/adr/casehub-desiredstate/cbr-integration-20260711-191746/`
+- Blog: `blog/2026-07-12-mdp01-when-the-graph-remembers.md`
