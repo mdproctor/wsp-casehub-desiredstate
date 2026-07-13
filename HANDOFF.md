@@ -2,13 +2,12 @@
 
 ## Last Session
 
-CBR integration (#23). Three SPIs (ConfigurationRetriever, ConfigurationAdapter,
-CbrConfiguration) in api/. CbrFaultPolicy (tactical — per-node mutations) and
-CbrSituationRecompiler (strategic — whole-graph replacement via SituationRecompilerEngine
-chain-of-responsibility) in runtime/. SituationRecompiler SPI evolved with ActualState
-parameter and priority() method. GraphDiff converts adapted graph fragments to mutations
-scoped by NodeType. Design-reviewed (3 rounds, $12.88, 16 issues, all resolved).
-Landed as `12d4f4b` on main.
+CBR Revise step (#76). CbrProposalTracker mediates between CBR components and
+ReconciliationLoop — records proposals at CBR decision time, matches per-node
+outcomes against pending proposals after execution, emits `io.casehub.cbr.outcome`
+CloudEvents. Breaking SPI change: FaultPolicy.onFault() and SituationRecompiler.recompile()
+gained tenancyId as first parameter (13+2 implementations in casehub-ops need updating).
+Design-reviewed (3 rounds, $13.08, 14 issues, all resolved). Landed as `796d416` on main.
 
 ## Immediate Next Step
 
@@ -22,24 +21,25 @@ stack — resume with `/work` or start something new.
 - `casehub-work` — WorkItem-backed handlers need `WorkItemCreator` SPI · S · Low
 
 **Notify:**
-- `casehub-ops` — SituationRecompiler SPI signature changed (ActualState param + priority()); 4 implementations need updating · S · Low
+- `casehub-ops` — FaultPolicy + SituationRecompiler signatures changed (tenancyId added); ops#52 filed · S · Low
+- `casehub-neocortex` — CbrCaseMemoryStore.recordOutcome() needed to consume CBR outcome events; neocortex#140 filed · M · Med
 
 ## What's Left
 
-- `#76` — CBR Revise step: outcome feedback loop to case store · M · High
 - `#77` — Promote DoublePreference/IntPreference to casehub-platform-api · S · Low
+- `neocortex#140` — CBR Revise SPI in neocortex (recordOutcome, confidence adjustment) · M · Med
+- `ops#52` — FaultPolicy/SituationRecompiler tenancyId migration · S · Low
 
 ## What's Next
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
 | #27 | Managed pipeline mode — Quarkus Flow per stage | M | High | Paused on stack |
-| #23 follow-on | Wire CBR into pipeline or expansion example | S | Med | Needs domain ConfigurationRetriever impl |
 | #25 | Desired-state as alternative case planning model | L | High | Depends on parent#233 |
 
 ## References
 
-- Spec: `docs/specs/2026-07-10-cbr-integration-design.md`
-- Plan: `docs/plans/2026-07-12-cbr-integration.md`
-- Design review: `~/adr/casehub-desiredstate/cbr-integration-20260711-191746/`
-- Blog: `blog/2026-07-12-mdp01-when-the-graph-remembers.md`
+- Spec: `docs/specs/2026-07-12-cbr-revise-outcome-feedback-design.md`
+- Plan: `docs/plans/2026-07-13-cbr-revise-outcome-feedback.md`
+- Design review: `~/adr/casehub-desiredstate/cbr-revise-outcome-feedback-20260712-235748/`
+- Blog: `blog/2026-07-13-mdp01-when-the-graph-learns-from-its-mistakes.md`
