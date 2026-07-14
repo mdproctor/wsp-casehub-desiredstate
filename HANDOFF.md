@@ -1,5 +1,7 @@
 # Handoff — casehub-desiredstate
 
+*Updated: #77, #75 closed — removed from backlog.*
+
 ## Last Session
 
 Promote DoublePreference/IntPreference to casehub-platform-api (#77) and add
