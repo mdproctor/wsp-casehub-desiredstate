@@ -1,22 +1,16 @@
 # Handoff — casehub-desiredstate
 
-*Updated: #77, #75 closed — removed from backlog.*
-
 ## Last Session
 
-Promote DoublePreference/IntPreference to casehub-platform-api (#77) and add
-examples aggregator POM (#75). Cross-repo: added both types to
-`io.casehub.platform.api.preferences` in casehub-platform (branch
-`issue-77-promote-preference-types`, commit `e74a86d`). Deleted local copies
-from desiredstate api/, updated DesiredStatePreferenceKeys imports. Created
-`examples/pom.xml` aggregator for casehub-examples subtree integration.
-Landed as `47a673a` on main.
+Fixed CI (#78). Two failures: (1) DoublePreference/IntPreference imports
+resolved by platform branch merge — no code change needed; (2)
+SituationDetectionTest missing RasMetrics constructor parameter from
+casehub-ras update — added the parameter. CI green at `08c8e50`.
 
 ## Immediate Next Step
 
 Pick next from What's Next table. #27 (managed pipeline mode) is paused on the
-stack — resume with `/work` or start something new. Platform branch
-`issue-77-promote-preference-types` needs merging to platform main.
+stack — resume with `/work` or start something new.
 
 ## Cross-Module
 
@@ -25,8 +19,7 @@ stack — resume with `/work` or start something new. Platform branch
 - `casehub-work` — WorkItem-backed handlers need `WorkItemCreator` SPI · S · Low
 
 **Pending cross-repo:**
-- `casehub-platform` — branch `issue-77-promote-preference-types` (`e74a86d`) needs merge to main
-- `casehub-engine-api` — still has DoublePreference/IntPreference in `io.casehub.api.spi.routing` — can delete once platform-api publishes
+- `casehub-engine-api` — still has DoublePreference/IntPreference in `io.casehub.api.spi.routing` — can delete now that platform-api has published
 - `casehub-ops` — FaultPolicy + SituationRecompiler signatures changed (tenancyId added); ops#52 filed · S · Low
 
 ## What's Left
