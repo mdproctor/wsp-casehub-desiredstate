@@ -1,5 +1,5 @@
-# Branch Closed: issue-54-requireshuman-deprovision
+# Branch Closed: issue-72-batch-work-adapter-design
 
 **Date:** 2026-07-17
-**Issues:** 54
+**Issues:** 72,79,80
 **Status:** merged to main
