@@ -25,7 +25,6 @@ Pick next from What's Next table. #27 (managed pipeline mode) has a branch
 
 - `neocortex#142` — Wire CbrOutcomeConsumer to platform CloudEvent routing · open
 - `neocortex#141` — Map<String, Object> → Map<String, FeatureValue> migration · open
-- `ops#52` — FaultPolicy/SituationRecompiler tenancyId migration · S · Low
 
 ## What's Next
 
