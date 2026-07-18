@@ -1,5 +1,5 @@
-# Branch Closed: issue-54-requireshuman-deprovision
+# Branch Closed: issue-81-workitem-approval-ops-migration
 
-**Date:** 2026-07-17
-**Issues:** 54
+**Date:** 2026-07-18
+**Issues:** 81,82
 **Status:** merged to main
