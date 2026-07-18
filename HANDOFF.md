@@ -15,12 +15,6 @@ all 5 ops GoalCompilers already migrated. Landed as `b42635f` on main.
 Pick next from What's Next table. #27 (managed pipeline mode) has a branch
 `issue-27-managed-pipeline-mode` on the pause stack — resume with `/work`.
 
-## Cross-Module
-
-**Blocked by:**
-- `casehub-engine-flow` — CaseTransitionExecutor needs `CallableDispatchRegistry` SPI · S · Low
-- `casehub-work` — WorkItem-backed handlers need `WorkItemCreator` SPI · S · Low
-
 ## What's Left
 
 - `neocortex#142` — Wire CbrOutcomeConsumer to platform CloudEvent routing · open
