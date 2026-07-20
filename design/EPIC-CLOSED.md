@@ -1,5 +1,5 @@
-# Branch Closed: issue-81-workitem-approval-ops-migration
+# Branch Closed: issue-84-cdi-no-args-constructors
 
-**Date:** 2026-07-18
-**Issues:** 81,82
+**Date:** 2026-07-20
+**Issues:** 84,83
 **Status:** merged to main
