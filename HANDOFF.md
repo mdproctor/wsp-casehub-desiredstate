@@ -1,3 +1,5 @@
+*Updated: neocortex#141 closed — removed from backlog.*
+
 # Handoff — casehub-desiredstate
 
 ## Last Session
@@ -15,7 +17,6 @@ Pick next from What's Next table. #27 (managed pipeline mode) has a branch
 ## What's Left
 
 - `neocortex#142` — Wire CbrOutcomeConsumer to platform CloudEvent routing · open
-- `neocortex#141` — Map<String, Object> → Map<String, FeatureValue> migration · open
 - casehub-ops — remove App* workaround clones now that #84 shipped · S · Low
 
 ## What's Next
