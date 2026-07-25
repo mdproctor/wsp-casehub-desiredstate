@@ -1,3 +1,5 @@
+*Updated: neocortex#142 closed, engine-adapter build failure resolved (#91) — removed from backlog.*
+
 # Handoff — casehub-desiredstate
 
 ## Last Session
@@ -21,9 +23,7 @@ Fix the pre-existing engine-adapter build failure (`CaseTransitionExecutor.java:
 
 ## What's Left
 
-- `neocortex#142` — Wire CbrOutcomeConsumer to platform CloudEvent routing · open
 - casehub-ops — remove App* workaround clones now that #84 shipped · S · Low
-- engine-adapter build failure — CaseTransitionExecutor.java:115 Mutiny type inference · S · Low
 
 ## What's Next
 
