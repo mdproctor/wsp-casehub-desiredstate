@@ -177,6 +177,7 @@ constraint entirely — the events are already emitted by the runtime and carry 
 | remove deletes entry | Next increment returns 1; getCount returns 0 |
 | evict removes entries not in retained set | Retained entries untouched, others gone |
 | tenant isolation | Same nodeId in different tenancies counted independently |
+| namespace isolation | Same (tenancyId, nodeId) in different namespaces counted independently |
 
 ### ThresholdFaultPolicyTest (updated)
 
@@ -195,7 +196,7 @@ constraint entirely — the events are already emitted by the runtime and carry 
 **casehub-ops** (Kubernetes, Deployment, IoT, Infra fault policies):
 - No change needed — builder defaults to InMemoryFaultCountStore with auto-derived namespace
 - Persistence opt-in: inject a persistent FaultCountStore via CDI, pass to builder with explicit namespace (future work, casehubio/casehub-desiredstate#86)
-- Reset-on-recovery opt-in: implement ReconciliationListener and call `delegate.resetCount(...)` (separate concern)
+- Reset-on-recovery opt-in: subscribe to `NodeRecoveredData` CloudEvents and call `delegate.resetCount(tenancyId, NodeId.of(data.nodeId()))` (separate concern)
 
 **examples/pipeline/ — ProvisionEscalationFaultPolicy:**
 `ProvisionEscalationFaultPolicy` uses the same `ConcurrentHashMap<NodeId, Integer>` pattern
