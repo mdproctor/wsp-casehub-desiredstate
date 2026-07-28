@@ -100,9 +100,9 @@ store with auto-derived namespace preserves current behavior.
 ### 2. onFault uses the store
 
 Replaces `faultCounts.merge(event.node(), 1, Integer::sum)` with
-`store.incrementAndGet(tenancyId, event.node())`.
+`store.incrementAndGet(namespace, tenancyId, event.node())`.
 
-Fixes tenant isolation — counts now keyed by `(tenancyId, nodeId)`.
+Fixes tenant isolation — counts now keyed by `(namespace, tenancyId, nodeId)`.
 
 ### 3. Lazy eviction
 
@@ -119,17 +119,27 @@ matching this policy's type filter. Revised guard order:
 5. If node type doesn't match → return
 6. Increment and check threshold
 
-### 4. Bulk eviction via ReconciliationListener
+### 4. Bulk eviction
 
 The `evict(namespace, tenancyId, retainedNodes)` method on `FaultCountStore` supports bulk
-cleanup of entries for nodes no longer in the desired graph. The natural integration point
-is a `ReconciliationListener` — after each reconciliation cycle, the listener receives the
-current `DesiredStateGraph` and can call `store.evict(namespace, tenancyId, desired.nodes().keySet())`.
+cleanup of entries for nodes no longer in the desired graph.
 
-Lazy eviction (§3) is the primary cleanup mechanism — it fires on any fault for a removed node.
-Bulk eviction is an optimization for deployers who want proactive cleanup of stale entries
-in persistent stores without waiting for a fault event. The integration pattern is external
-to ThresholdFaultPolicy, consistent with the SPI-driven architecture.
+Lazy eviction (§3) is the primary cleanup mechanism — it fires on any fault for a removed
+node, regardless of fault type. For most deployments, lazy eviction is sufficient: stale
+entries are cleaned up opportunistically and the in-memory store has no durability concern.
+
+Bulk eviction is an optimization for persistent stores where deployers want proactive cleanup
+without waiting for a fault event. Integration options:
+- **Direct loop callers** (bypassing LifecycleManager) can use ReconciliationListener to call
+  `store.evict(namespace, tenancyId, desired.nodes().keySet())` after each cycle.
+- **Scheduled task** — a CDI `@Scheduled` method or Quartz job that periodically reads the
+  current desired graph and calls `evict()` on the store.
+
+**Constraint:** `ReconciliationLoop` supports one `ReconciliationListener` per tenant.
+`LifecycleManager` occupies this slot for tenants started through the standard path
+(ARC42STORIES §9.3 Chapter 9). The bulk eviction ReconciliationListener pattern is therefore
+available only for direct loop callers or when multi-listener support is added
+(casehubio/casehub-desiredstate#88).
 
 ### 5. Public resetCount method
 
@@ -142,9 +152,14 @@ public void resetCount(String tenancyId, NodeId nodeId) {
 Wrapping policies that want reset-on-recovery call this when they detect recovery.
 ThresholdFaultPolicy itself never calls it — recovery detection is a runtime concern
 (ReconciliationLoop tracks `activeProblems` and emits `NodeRecoveredData` CloudEvents),
-not a policy concern. The recommended integration pattern: a wrapping policy implements
-`ReconciliationListener`, observes `ActualState` for recovered nodes, and calls
-`delegate.resetCount(tenancyId, nodeId)` on transition to `PRESENT`.
+not a policy concern. The recommended integration pattern: subscribe to `NodeRecoveredData`
+CloudEvents (which carry `tenancyId` and `nodeId`) and call `delegate.resetCount(tenancyId,
+NodeId.of(data.nodeId()))` on receipt.
+
+**Note:** The earlier R1-04 discussion considered a `ReconciliationListener`-based wrapping
+pattern. However, `ReconciliationLoop` supports one listener per tenant and `LifecycleManager`
+occupies this slot for the standard startup path. CloudEvent subscription avoids this
+constraint entirely — the events are already emitted by the runtime and carry sufficient data.
 
 ### Field removal
 
