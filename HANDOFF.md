@@ -1,25 +1,17 @@
-*Updated: neocortex#142 closed, engine-adapter build failure resolved (#91) — removed from backlog.*
-
 # Handoff — casehub-desiredstate
 
 ## Last Session
 
-Landed #90 ThresholdFaultPolicy — reusable count-based fault escalation with
-FaultPolicy SPI composition. Design review eliminated EscalationAction (duplicate
-type), moved addReviewNode to FaultPolicy as static factory. Null validation added
-to FaultEvent.detail and StepOutcome reason fields. Pre-existing engine-adapter
-build failure on main (CaseTransitionExecutor Mutiny type inference — from #384
-blocking RAS SPI migration).
+Landed #85 — FaultCountStore SPI, InMemoryFaultCountStore, ThresholdFaultPolicy
+refactored to delegate counting. Namespace-scoped keys for composability, tenant
+isolation, lazy eviction via guard reordering, resetCount for recovery integration.
+Design-reviewed (4 rounds, 10 issues, all resolved). Fixed CI (#92 spatial test)
+en route. Filed follow-ups: #94 (persistent backend), #95 (ProvisionEscalationFaultPolicy
+migration), #96 (composite ReconciliationListener).
 
 ## Immediate Next Step
 
-Fix the pre-existing engine-adapter build failure (`CaseTransitionExecutor.java:115`
-— Mutiny `completionStage` type inference after #384 blocking RAS SPI migration).
-
-## Cross-Module
-
-**Enabled** (we delivered, downstream not yet done):
-- `casehub-ras` — `SituationDefinitionRegistry.forTesting()` factory shipped (`f196209`) · XS · Low
+Pick next from What's Next table. #94 is the natural follow-on from #85.
 
 ## What's Left
 
@@ -29,12 +21,15 @@ Fix the pre-existing engine-adapter build failure (`CaseTransitionExecutor.java:
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
-| #85 | Persisted fault counts for ThresholdFaultPolicy | M | Med | Unblocked by #90 |
-| #86 | Multi-tier escalation support in ThresholdFaultPolicy | M | Med | Unblocked by #90 |
-| #27 | Managed pipeline mode — Quarkus Flow per stage | M | High | On pause stack, unblocked (#40 closed) |
+| #94 | Persistent FaultCountStore implementation | M | Med | Follow-on from #85 |
+| #95 | Migrate ProvisionEscalationFaultPolicy to FaultCountStore | S | Low | Same counting bugs as pre-#85 ThresholdFaultPolicy |
+| #96 | Composite ReconciliationListener (multi-listener) | S | Med | Unblocks bulk eviction integration pattern |
+| #86 | Multi-tier escalation support in ThresholdFaultPolicy | M | Med | |
+| #27 | Managed pipeline mode — Quarkus Flow per stage | M | High | On pause stack |
 | #25 | Desired-state as alternative case planning model | L | High | Depends on parent#233 |
 | #74 | Logistics example with blocks summarisation feeding RAS | M | Med | Design question — integration scope |
 
 ## References
 
 - ADR: `docs/adr/0001-desired-state-as-planning-paradigm.md`
+- Spec: `docs/specs/2026-07-28-persisted-fault-counts-design.md`
