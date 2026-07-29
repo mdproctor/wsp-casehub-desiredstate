@@ -31,30 +31,47 @@ field. `LifecycleManager` occupies this slot for phase transitions. No other lis
 
 ### Design
 
-Two categories of listener:
+Two categories of listener, distinguished at the type level:
 
-| Category | Scope | Registration | Example |
-|----------|-------|-------------|---------|
-| Global | Application-scoped | CDI-discovered at construction | Bulk eviction, metrics |
-| Per-tenant | Tenant lifecycle | `start(tenancyId, desired, listener)` / `setListener()` | LifecycleManager |
+| Category | Interface | Scope | Registration | Example |
+|----------|-----------|-------|-------------|---------|
+| Global | `GlobalReconciliationListener` | Application-scoped | CDI-discovered at construction | Bulk eviction, metrics |
+| Per-tenant | `ReconciliationListener` | Tenant lifecycle | `start(tenancyId, desired, listener)` / `setListener()` | LifecycleManager |
 
-ReconciliationLoop accepts `List<ReconciliationListener>` at construction time — global
-listeners discovered via CDI `Instance<ReconciliationListener>`. The per-tenant `listener`
-field remains. `fireListener()` iterates global listeners, then calls the per-tenant listener.
+**`GlobalReconciliationListener`** (api/) — new interface with the same method signature
+as `ReconciliationListener`. The type distinction prevents a CDI-discovered
+`@ApplicationScoped` bean from being accidentally passed to `setListener()` as a
+per-tenant listener, and follows the established pattern where separate roles use
+separate types (`EventSource` / `MergedEventSource`, `FaultPolicy` / `FaultPolicyEngine`,
+`NodeProvisioner` / `NodeProvisionerRouter`).
 
-This follows the established composition pattern: `MergedEventSource` (EventSource beans),
-`FaultPolicyEngine` (FaultPolicy beans), `NodeProvisionerRouter` (NodeProvisioner beans).
+ReconciliationLoop accepts `List<GlobalReconciliationListener>` at construction time —
+discovered via CDI `Instance<GlobalReconciliationListener>`. The per-tenant `listener`
+field remains as `ReconciliationListener`. `fireListener()` iterates global listeners,
+then calls the per-tenant listener.
 
 ### Changes
 
+**`GlobalReconciliationListener`** (api/): New interface — same method signature as
+`ReconciliationListener`. Not `@FunctionalInterface` (CDI beans, not lambdas).
+
+```java
+public interface GlobalReconciliationListener {
+    void onReconciliationCycleCompleted(String tenancyId, DesiredStateGraph desired, ActualState actual);
+}
+```
+
+**`ReconciliationListener`** (api/): No change. Stays `@FunctionalInterface` for
+per-tenant use.
+
 **`ReconciliationLoop`** (runtime/):
-- Add `private final List<ReconciliationListener> globalListeners` field
-- Thread `List<ReconciliationListener>` through all constructors (CDI constructor
-  takes `Instance<ReconciliationListener>`, test constructors default to `List.of()`)
+- Add `private final List<GlobalReconciliationListener> globalListeners` field
+- Thread `List<GlobalReconciliationListener>` through all constructors (CDI constructor
+  takes `Instance<GlobalReconciliationListener>`, test constructors default to `List.of()`)
 - `fireListener()` iterates `globalListeners` then calls per-tenant `listener`,
   each wrapped in try/catch (existing error isolation pattern)
-
-**`ReconciliationListener`** (api/): No change. Stays `@FunctionalInterface`.
+- Constructor telescope: this adds one parameter to each of the 7 existing constructors.
+  The telescope is pre-existing tech debt — refactoring deferred (see Deferred Issues).
 
 **Garden GE-20260707 compliance:** `fireListener()` is already called before the
 early return on empty plan (line 578 in reconcile()). Global listeners inherit
@@ -130,18 +147,35 @@ CREATE TABLE ds_fault_count (
 
 Portable SQL — works on H2 (MODE=PostgreSQL) and Postgres.
 
+**Consumer Flyway configuration:** Applications using `persistence-jpa/` must add
+the desiredstate migration path to their Flyway locations:
+
+```properties
+quarkus.flyway.locations=classpath:db/desiredstate/migration
+```
+
+Per `flyway-repo-scoped-migration-path` protocol — Quarkus has no runtime
+auto-registration mechanism.
+
+**NodeId conversion:** The entity stores `node_id` as `String`. `JpaFaultCountStore`
+converts between `NodeId` and `String` at the repository boundary — `nodeId.value()`
+on write, `NodeId.of(column)` on read. No `AttributeConverter`; the entity is a
+persistence concern, not a domain type.
+
 **`JpaFaultCountStore` operations:**
 
-| SPI method | JPA operation |
+| SPI method | Implementation |
 |-----------|---------------|
-| `incrementAndGet` | Find by key → if absent create(count=1), else set count+1, merge. `@Transactional` |
+| `incrementAndGet` | Native SQL upsert: `INSERT INTO ds_fault_count (...) VALUES (?, ?, ?, 1) ON CONFLICT (namespace, tenancy_id, node_id) DO UPDATE SET count = ds_fault_count.count + 1 RETURNING count`. Atomic — no read-modify-write race. `@Transactional` |
 | `getCount` | Find by key → return count or 0 |
-| `reset` | Find by key → set count=0, merge |
+| `reset` | Native SQL upsert: `INSERT INTO ds_fault_count (...) VALUES (?, ?, ?, 0) ON CONFLICT (namespace, tenancy_id, node_id) DO UPDATE SET count = 0`. Creates zero-count row if absent — matches `InMemoryFaultCountStore.reset()` semantics. `@Transactional` |
 | `remove` | Find by key → remove |
-| `evict` | Named query: DELETE WHERE namespace=? AND tenancy_id=? AND node_id NOT IN (?) |
+| `evict` | Branches on `retainedNodes`: when empty, `DELETE WHERE namespace=? AND tenancy_id=?`; when non-empty, `DELETE WHERE namespace=? AND tenancy_id=? AND node_id NOT IN (?)`. JPQL `NOT IN` with empty collection is undefined in JPA — the branch avoids this. `@Transactional` |
 
-All mutating methods are `@Transactional`. Contention is low (faults are
-relatively rare), so find-then-merge without pessimistic locking is sufficient.
+All mutating methods are `@Transactional`. `incrementAndGet` and `reset` use native
+SQL upserts for atomicity — the `INSERT ON CONFLICT` pattern is portable across
+PostgreSQL and H2 (`MODE=PostgreSQL`). No `@Version` field is needed on the entity
+since the database handles atomicity at the SQL level.
 
 ### Module: runtime/ addition
 
@@ -182,8 +216,21 @@ Replace the private map with `FaultCountStore`:
 - Replace `faultCounts` map reads with `store.getCount(NAMESPACE, tenancyId, nodeId)`
 - Remove the `faultCounts` field
 
-**Three-tier escalation logic unchanged.** Only the counting substrate changes.
-The tenancyId parameter (already available in `onFault`) is now used for isolation.
+**Three-tier escalation logic unchanged.** The counting substrate changes from a
+private `ConcurrentHashMap` to `FaultCountStore`.
+
+**Behavioral change — per-tenant counting:** The current code keys counts by `NodeId`
+only. If a shared policy instance handles multiple tenants, counts are global across
+tenants. The migration keys by `(namespace, tenancyId, nodeId)`, isolating counts per
+tenant. This is the correct semantics: a node failing in tenant-A should not contribute
+to tenant-B's escalation threshold. Per-tenant isolation makes the behavior consistent
+regardless of instantiation strategy.
+
+**Lazy eviction for removed nodes:** When the faulted node is no longer in the graph
+(`current.nodes().get(event.node()) == null`), call
+`store.remove(NAMESPACE, tenancyId, event.node())` before returning. This matches the
+pattern established in `ThresholdFaultPolicy.onFault()` and prevents orphaned counts
+from accumulating in the store.
 
 ### Wiring
 
@@ -205,22 +252,34 @@ public ProvisionEscalationFaultPolicy(PipelineWorld world, FaultCountStore store
 ## Testing Strategy
 
 ### #96 — Composite ReconciliationListener
-- Unit test: multiple global listeners + per-tenant listener all fire on cycle
-- Unit test: one global listener throws → others still fire
+- Unit test: multiple `GlobalReconciliationListener` beans + per-tenant `ReconciliationListener` all fire on cycle
+- Unit test: one global listener throws → others and per-tenant listener still fire
 - Unit test: global listeners fire on empty-plan cycles (GE-20260707 compliance)
 - Existing `ReconciliationLoopLifecycleTest` tests remain green (per-tenant path unchanged)
 
 ### #94 — JpaFaultCountStore
 - Unit tests mirroring `InMemoryFaultCountStoreTest` contract (all 5 SPI methods)
-- `@QuarkusTest` with H2 for JPA integration
-- Test `incrementAndGet` atomicity under concurrent calls
-- Test `evict` with retained node set
+- `@QuarkusTest` with H2 (`MODE=PostgreSQL`) for JPA integration
+- Test `incrementAndGet` atomicity under concurrent calls (upsert correctness)
+- Test `evict` with retained node set and with empty retained set (branch coverage)
+- Test `reset` on non-existent key creates zero-count row
 - Test CDI priority: JPA beats `@DefaultBean` when both on classpath
 
 ### #95 — ProvisionEscalationFaultPolicy migration
 - Existing pipeline example tests remain green
 - Test tenant isolation: two tenants, independent fault counts
 - Test namespace scoping: escalation counts isolated from other policies
+- Test lazy eviction: removed node triggers `store.remove()`, count resets on re-add
+
+---
+
+## Deferred Issues
+
+| Concern | Follow-up | Rationale |
+|---------|-----------|-----------|
+| `evict()` has zero callers | File issue: FaultCountEvictionListener design | SPI method is correctly designed infrastructure; the eviction consumer requires namespace-aware design (each policy owns its namespace) — deferred to separate issue |
+| ReconciliationLoop constructor telescope (8+ params) | File issue: constructor refactoring | Pre-existing tech debt. This spec adds one parameter; the telescope predates it. Introduce config/options object for test constructors |
+| `persistence-backend-cdi-priority` protocol narrows @DefaultBean to "no-op or mock" | File protocol update issue | `DefaultFaultCountStore` is functional (extends `InMemoryFaultCountStore`), matching `SimpleTransitionExecutor @DefaultBean`. Protocol should clarify @DefaultBean can be a functional fallback |
 
 ---
 
@@ -229,6 +288,7 @@ public ProvisionEscalationFaultPolicy(PipelineWorld world, FaultCountStore store
 After implementation:
 - Add `persistence-jpa/` to module table
 - Add `DefaultFaultCountStore` to core runtime types
+- Add `GlobalReconciliationListener` to api/ types
 - Update `ReconciliationLoop` constructor documentation (global listeners param)
 - Add `JpaFaultCountStore` and `FaultCountEntity` to core runtime types
 - Note Flyway migration path: `db/desiredstate/migration/`
