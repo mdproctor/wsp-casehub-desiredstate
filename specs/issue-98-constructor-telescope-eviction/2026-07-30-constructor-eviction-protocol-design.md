@@ -90,7 +90,7 @@ the registry.
 **New method on FaultCountStore (api/):**
 
 ```java
-void evictAll(String tenancyId, Set<NodeId> retainedNodes);
+void evictAcrossNamespaces(String tenancyId, Set<NodeId> retainedNodes);
 ```
 
 Removes entries for non-retained nodes across all namespaces for the given tenant. Non-default
@@ -100,7 +100,7 @@ remains for policy-specific cleanup.
 **InMemoryFaultCountStore implementation:**
 
 ```java
-public void evictAll(String tenancyId, Set<NodeId> retainedNodes) {
+public void evictAcrossNamespaces(String tenancyId, Set<NodeId> retainedNodes) {
     counts.keySet().removeIf(key ->
         key.tenancyId().equals(tenancyId) && !retainedNodes.contains(key.nodeId()));
 }
@@ -109,7 +109,7 @@ public void evictAll(String tenancyId, Set<NodeId> retainedNodes) {
 **JpaFaultCountStore implementation:**
 
 ```java
-public void evictAll(String tenancyId, Set<NodeId> retainedNodes) {
+public void evictAcrossNamespaces(String tenancyId, Set<NodeId> retainedNodes) {
     // Empty retained → delete all for tenant
     // Non-empty → DELETE ... WHERE tenancy_id = :tid AND node_id NOT IN :retained
 }
@@ -132,7 +132,7 @@ public class FaultCountEvictionListener implements GlobalReconciliationListener 
     @Override
     public void onReconciliationCycleCompleted(String tenancyId,
             DesiredStateGraph desired, ActualState actual) {
-        store.evictAll(tenancyId, desired.nodes().keySet());
+        store.evictAcrossNamespaces(tenancyId, desired.nodes().keySet());
     }
 }
 ```
@@ -140,16 +140,74 @@ public class FaultCountEvictionListener implements GlobalReconciliationListener 
 CDI-discovered via `Instance<GlobalReconciliationListener>` in ReconciliationLoop. Exception isolation
 already handled by ReconciliationLoop's per-listener try/catch.
 
+### Tenant stop cleanup
+
+Add a lifecycle hook to `GlobalReconciliationListener`:
+
+```java
+public interface GlobalReconciliationListener {
+    void onReconciliationCycleCompleted(String tenancyId, DesiredStateGraph desired, ActualState actual);
+    default void onTenantStopped(String tenancyId) {}
+}
+```
+
+`TenantLoop.stop()` calls `onTenantStopped(tenancyId)` on all global listeners before cancelling
+futures. The eviction listener implements it:
+
+```java
+@Override
+public void onTenantStopped(String tenancyId) {
+    store.evictAcrossNamespaces(tenancyId, Set.of());
+}
+```
+
+Passing an empty retained set evicts all counts for the tenant. Without this, stale fault counts for
+stopped tenants persist until the tenant is restarted and a full reconcile fires. For long-lived
+processes with tenant churn, this is a slow storage leak.
+
 ### Design fix: remove listener firing from reconcileTypes()
 
-`reconcileTypes()` calls `fireListener(filtered, actual)` with a type-filtered graph. If the eviction
-listener receives a filtered graph, it treats nodes of other types as "not retained" and incorrectly
-evicts their counts. This affects any GlobalReconciliationListener that uses the desired graph as truth.
+`reconcileTypes()` currently calls `fireListener(fullDesired, actual)` at the end of each type-filtered
+resync cycle. While it correctly passes the full desired graph (not the filtered one), listener firing
+from this path is wrong for three reasons:
 
-**Fix:** Remove listener firing from `reconcileTypes()` entirely. Type-filtered resync is a sub-operation,
-not a full cycle. If resync discovers drift or executes transitions, it emits CloudEvents → triggers
-debounced full `reconcile()` → listeners fire with the correct full graph. Delay bounded by debounce
-window (default 1s).
+1. **Semantic incorrectness:** `reconcileTypes()` is a sub-operation (type-filtered resync driven by
+   interval-grouped timers), not a full reconciliation cycle. Signaling "cycle completed" when only a
+   subset of node types was reconciled is semantically wrong. Future listeners — not just eviction —
+   may take once-per-cycle actions that should not fire for sub-operations.
+
+2. **Partial actual state:** `readActual(filteredDesired, tenancyId)` only reads actual state for the
+   filtered types. Listeners receive full `desired` but partial `actual` — a landmine for any listener
+   that uses the `actual` parameter. The eviction listener happens not to use `actual`, but this is
+   an implicit coupling that breaks silently when a new listener does.
+
+3. **Redundant invocations:** With N interval groups, listeners fire N times per resync cycle with the
+   same full desired graph. This is wasteful and potentially incorrect for listeners with side effects.
+
+**Fix:** Remove listener firing from `reconcileTypes()` entirely.
+
+**Delay analysis:** With this change, listeners fire only from full `reconcile()`, which is triggered by
+events on `MergedEventSource` (debounced by debounce window). In production mode with interval groups,
+there is no periodic full `reconcile()` — all resync goes through `reconcileTypes()`. This means
+listeners fire only on event-driven reconciliation, not on periodic resync.
+
+For eviction, this is correct: eviction is needed when nodes leave the desired graph. Node removal is
+an external desired-state-change event, which triggers debounced `reconcile()` via `MergedEventSource`.
+Eviction fires promptly (bounded by debounce window, default 1s) when it matters. Between events, stale
+fault counts from unchanged resync cycles are harmless noise — they consume storage but don't affect
+correctness because the nodes they track are still present in the desired graph.
+
+Edge case: `faultFeedback()` mutates `desiredRef` via `casRetryMutations()` without triggering
+`scheduleReconciliation()`. If a fault policy were to remove nodes from the graph, stale counts would
+persist until the next event-triggered reconcile. This is acceptable because fault policies add/modify
+nodes (circuit-break, disable), they don't remove them.
+
+**Contract change for per-tenant `ReconciliationListener`:** The same three reasons apply to the
+per-tenant listener set via `start(tenancyId, desired, listener)`. Callers passing a
+`ReconciliationListener` currently receive notifications on every type-filtered resync — that contract
+changes. The method name `onReconciliationCycleCompleted` implies a full cycle; type-filtered resync
+is not one. Callers that need per-type-group notifications should use a different mechanism (e.g.,
+subscribe to CloudEvents).
 
 Split `fireListener()` into `fireGlobalListeners()` + `firePerTenantListener()` for clarity.
 `reconcile()` calls both. `reconcileTypes()` calls neither.
@@ -166,17 +224,23 @@ out of the box without persistence. Same pattern as `SimpleTransitionExecutor`.
 
 ### Change
 
-Update the protocol to document the CDI priority tier:
+Update the protocol to split Tier 1 into two semantic categories. The full tier table becomes:
 
-| Tier | Pattern | Example |
-|------|---------|---------|
-| Full implementation | `@ApplicationScoped` (displaces @DefaultBean) | JpaFaultCountStore |
-| Functional fallback | `@DefaultBean @ApplicationScoped` | DefaultFaultCountStore |
-| No-op / misconfiguration signal | `@DefaultBean @ApplicationScoped` | NoOpPendingApprovalHandler |
+| Tier | Annotation | Semantics | Example |
+|------|-----------|-----------|---------|
+| 1a | `@DefaultBean @ApplicationScoped` | Functional fallback — works correctly within constraints (e.g., in-memory counting works, just not durable) | DefaultFaultCountStore |
+| 1b | `@DefaultBean @ApplicationScoped` | No-op / misconfiguration signal — signals missing backend | NoOpPendingApprovalHandler |
+| 2 | `@ApplicationScoped` | Primary backend (JPA) — displaces @DefaultBean | JpaFaultCountStore |
+| 3 | `@Alternative @Priority(1)` | Secondary backend (NoSQL) — beats @ApplicationScoped | — |
+| 4 | `@Alternative @Priority(100)` | In-memory test override — beats everything | — |
 
-`@DefaultBean` is valid for functional fallbacks when the SPI has meaningful non-persistent semantics.
-The distinction: a functional fallback works correctly within its constraints (in-memory counting works,
-just not durable); a no-op signals misconfiguration.
+**What changes:** Tier 1 splits from "mock/no-op" into two categories. `@DefaultBean` is valid for
+functional fallbacks when the SPI has meaningful non-persistent semantics. Tiers 2–4 are unchanged.
+
+**What doesn't change:** The "Don't use `@DefaultBean` on real (non-mock) implementations" guidance
+narrows to: "Don't use `@DefaultBean` on implementations that require external infrastructure (DB,
+message broker) to function." A functional fallback that works self-contained (in-memory) is not
+a "real implementation" in this sense — it's a degraded-but-functional default.
 
 Cross-repo: casehub/garden. Protocols do not live in this repo.
 
@@ -185,7 +249,7 @@ Cross-repo: casehub/garden. Protocols do not live in this repo.
 ## Execution Order
 
 1. **#98** — Builder + CbrProposalTracker bug fix. Foundation for subsequent test patterns.
-2. **#97** — evictAll() on FaultCountStore, eviction listener, reconcileTypes() listener fix.
+2. **#97** — evictAcrossNamespaces() on FaultCountStore, eviction listener, reconcileTypes() listener fix.
 3. **#99** — Protocol update in casehub/garden.
 
 ---
@@ -199,15 +263,16 @@ Cross-repo: casehub/garden. Protocols do not live in this repo.
 - `examples/expansion/src/test/.../ExpansionLifecycleTest.java` — 1 call site
 
 ### #97
-- `api/.../FaultCountStore.java` — add evictAll()
-- `api/.../InMemoryFaultCountStore.java` — implement evictAll()
-- `persistence-jpa/.../JpaFaultCountStore.java` — implement evictAll()
-- `runtime/.../FaultCountEvictionListener.java` — new file
-- `runtime/.../ReconciliationLoop.java` — split fireListener(), remove from reconcileTypes()
-- `api/src/test/.../InMemoryFaultCountStoreTest.java` — evictAll() tests
-- `persistence-jpa/src/test/.../JpaFaultCountStoreTest.java` — evictAll() tests
+- `api/.../FaultCountStore.java` — add evictAcrossNamespaces()
+- `api/.../InMemoryFaultCountStore.java` — implement evictAcrossNamespaces()
+- `api/.../GlobalReconciliationListener.java` — add default onTenantStopped() lifecycle hook
+- `persistence-jpa/.../JpaFaultCountStore.java` — implement evictAcrossNamespaces()
+- `runtime/.../FaultCountEvictionListener.java` — new file (implements both hooks)
+- `runtime/.../ReconciliationLoop.java` — split fireListener(), remove from reconcileTypes(), call onTenantStopped in stop()
+- `api/src/test/.../InMemoryFaultCountStoreTest.java` — evictAcrossNamespaces() tests
+- `persistence-jpa/src/test/.../JpaFaultCountStoreTest.java` — evictAcrossNamespaces() tests
 - `runtime/src/test/.../FaultCountEvictionListenerTest.java` — new file
-- `runtime/src/test/.../ReconciliationLoop*Test.java` — adjust for listener firing change
+- `runtime/src/test/.../ReconciliationLoop*Test.java` — adjust for listener firing change + stop cleanup
 
 ### #99
 - `casehub/garden/docs/protocols/.../persistence-backend-cdi-priority.md` — update
