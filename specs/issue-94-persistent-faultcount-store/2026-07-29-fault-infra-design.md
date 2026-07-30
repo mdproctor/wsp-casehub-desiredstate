@@ -166,16 +166,19 @@ persistence concern, not a domain type.
 
 | SPI method | Implementation |
 |-----------|---------------|
-| `incrementAndGet` | Native SQL upsert: `INSERT INTO ds_fault_count (...) VALUES (?, ?, ?, 1) ON CONFLICT (namespace, tenancy_id, node_id) DO UPDATE SET count = ds_fault_count.count + 1 RETURNING count`. Atomic — no read-modify-write race. `@Transactional` |
+| `incrementAndGet` | Two-step within `@Transactional`: (1) upsert `INSERT INTO ds_fault_count (...) VALUES (?, ?, ?, 1) ON CONFLICT (namespace, tenancy_id, node_id) DO UPDATE SET count = ds_fault_count.count + 1`, (2) `SELECT count FROM ds_fault_count WHERE namespace=? AND tenancy_id=? AND node_id=?`. Atomic — `ON CONFLICT DO UPDATE` acquires a row-level exclusive lock; the SELECT within the same transaction sees the updated value. Avoids `RETURNING` clause for H2 portability. |
 | `getCount` | Find by key → return count or 0 |
 | `reset` | Native SQL upsert: `INSERT INTO ds_fault_count (...) VALUES (?, ?, ?, 0) ON CONFLICT (namespace, tenancy_id, node_id) DO UPDATE SET count = 0`. Creates zero-count row if absent — matches `InMemoryFaultCountStore.reset()` semantics. `@Transactional` |
 | `remove` | Find by key → remove |
 | `evict` | Branches on `retainedNodes`: when empty, `DELETE WHERE namespace=? AND tenancy_id=?`; when non-empty, `DELETE WHERE namespace=? AND tenancy_id=? AND node_id NOT IN (?)`. JPQL `NOT IN` with empty collection is undefined in JPA — the branch avoids this. `@Transactional` |
 
 All mutating methods are `@Transactional`. `incrementAndGet` and `reset` use native
-SQL upserts for atomicity — the `INSERT ON CONFLICT` pattern is portable across
-PostgreSQL and H2 (`MODE=PostgreSQL`). No `@Version` field is needed on the entity
-since the database handles atomicity at the SQL level.
+SQL upserts for atomicity — `INSERT ON CONFLICT DO UPDATE` is portable across
+PostgreSQL and H2 (`MODE=PostgreSQL`). `incrementAndGet` follows the upsert with a
+SELECT to retrieve the new count, avoiding reliance on `RETURNING` (whose H2
+compatibility with `ON CONFLICT DO UPDATE` is unvalidated in this codebase). The
+extra SELECT is negligible — faults are rare events. No `@Version` field is needed
+on the entity since the database handles atomicity at the SQL level.
 
 ### Module: runtime/ addition
 
