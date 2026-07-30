@@ -151,8 +151,17 @@ public interface GlobalReconciliationListener {
 }
 ```
 
-`TenantLoop.stop()` calls `onTenantStopped(tenancyId)` on all global listeners before cancelling
-futures. The eviction listener implements it:
+`TenantLoop.stop()` calls `onTenantStopped(tenancyId)` on all global listeners with per-listener
+try/catch exception isolation (same pattern as `fireListener()`). One failing listener must not
+prevent others from being notified or block the stop sequence.
+
+**Stop sequence ordering:** unsubscribe events → call `onTenantStopped` → cancel futures →
+`cbrTracker.clearTenant()`. The `onTenantStopped` call fires after event unsubscription to prevent
+a race where a new event arrives during listener cleanup, triggers `scheduleReconciliation()`, and
+re-adds stale state after eviction. It fires before future cancellation because listeners may need
+the scheduler context (e.g., for transactional cleanup).
+
+The eviction listener implements it:
 
 ```java
 @Override
@@ -198,9 +207,12 @@ fault counts from unchanged resync cycles are harmless noise — they consume st
 correctness because the nodes they track are still present in the desired graph.
 
 Edge case: `faultFeedback()` mutates `desiredRef` via `casRetryMutations()` without triggering
-`scheduleReconciliation()`. If a fault policy were to remove nodes from the graph, stale counts would
-persist until the next event-triggered reconcile. This is acceptable because fault policies add/modify
-nodes (circuit-break, disable), they don't remove them.
+`scheduleReconciliation()`. `GraphMutation.RemoveNode` is a first-class mutation variant, and
+`CbrFaultPolicy` uses `GraphDiff.computeMutations()` which can produce any mutation type including
+node removal (e.g., CBR suggests a simpler topology with fewer nodes). If a fault policy removes a node
+from the graph, stale fault counts for that node persist until the next event-triggered reconcile. The
+consequence is bounded: delayed eviction (storage waste), not incorrect behavior — the counts are inert
+because the node is no longer in the desired graph and cannot fault.
 
 **Contract change for per-tenant `ReconciliationListener`:** The same three reasons apply to the
 per-tenant listener set via `start(tenancyId, desired, listener)`. Callers passing a
