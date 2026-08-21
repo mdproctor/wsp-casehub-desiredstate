@@ -8,6 +8,8 @@
 - Class-only `@DependsOn` for class targets — breaks cross-model references
 **Rationale:** Single annotation, two reference forms. Class-to-class dependencies are type-safe and compile-time checked. Cross-model references (class → interface node, or vice versa) use the string form. Both merge into the same `DependencyDescriptor(from, to)` at build time.
 **Trade-offs:** `@DependsOn` API is slightly more complex with two attributes. Users must know which form to use for cross-model vs same-model references.
+**Prerequisites:** `@DependsOn` needs `@Target` expanded to include `TYPE`. Contributing modules must generate Jandex indexes. Validation pipeline restructured for cross-model reference resolution.
+**Depends on:** D3 (class reference resolution uses the target class's explicit `id`)
 **Sources:** DependsOn.java, DesiredStateAnnotationsProcessor.java, DependencyDescriptor.java
 **Exploration:** quick
 **Status:** captured
@@ -24,17 +26,17 @@
 **Exploration:** quick
 **Status:** captured
 
-## D3: Node ID derived via kebab-case from class simple name
+## D3: Explicit node ID required on @DesiredNode
 
-**Choice:** When `@DesiredNode` omits the `id` attribute, derive node ID from the class simple name using camelCase→kebab-case conversion. `LoadBalancer` → `"load-balancer"`.
+**Choice:** `id` attribute is mandatory on `@DesiredNode`. No derivation from class name. `@DesiredNode(namespace = "infra", name = "zones", id = "load-balancer")`.
 **Alternatives:**
-- Lowercase simple name (`loadbalancer`) — harder to read
-- Always require explicit `id` — safe but verbose, no convention
-**Rationale:** Matches the naming convention used in existing interface-declared node IDs (`csv-source`, `dedup-cleanser`, `geo-enricher`). Predictable and consistent.
-**Trade-offs:** Class renames change node identity. Mitigation: explicit `id` attribute is always available as an override.
-**Sources:** MedallionPipeline.java (interface-declared node IDs), NodeId.java
-**Exploration:** quick
-**Status:** captured
+- Derive from class name via kebab-case (`LoadBalancer` → `"load-balancer"`) — ergonomic but fragile: class renames silently change node identity
+- Derivation as opt-in (`id = DesiredNode.DERIVED`) — best of both but adds API surface
+**Rationale:** Node IDs are persistence-critical — FaultCountStore, PendingApproval lifecycle, CloudEvents, ActualState mapping all key on them. A class rename silently changing the derived ID would cause deprovision + reprovision of actual infrastructure. The interface model always requires explicit IDs (`@Node("csv-source")`). Consistency and safety argue for the same requirement.
+**Trade-offs:** More verbose — every `@DesiredNode` must specify `id`. This is the safe default for identity-critical values.
+**Sources:** MedallionPipeline.java (explicit node IDs), NodeId.java, FaultCountStore SPI, PendingApprovalHandler SPI, reviewer R1-03
+**Exploration:** quick → revised after decision review (R1-03)
+**Status:** revised
 
 ## D4: No factory pattern — interface model handles multi-instance
 
@@ -67,24 +69,32 @@
 - Interface-level only — simpler processor, but class-based nodes can't declare node-specific fault policies via annotations
 - Standalone @FaultPolicyDef class — fully decoupled, but policies without visible graph context are confusing
 **Rationale:** Consistent with method-level @FaultPolicyDef on @Node. Self-contained — each @DesiredNode class carries its own fault policy and review methods. Interface-level @FaultPolicyDef remains for cross-type policies.
-**Trade-offs:** Processor must handle FaultPolicyDef on both class targets and interface targets. Review method validation differs (on the class vs on the interface).
+**Trade-offs:** Processor must handle FaultPolicyDef on both class targets and interface targets. Review method validation differs (on the class vs on the interface). No multi-class conflict: each @DesiredNode class has exactly one nodeType(), so ThresholdFaultPolicy scoping is unambiguous — two classes with @FaultPolicyDef for the same faultType but different nodeTypes are independent policies.
 **Depends on:** D4 (one class = one node, so nodeTypes can be auto-inferred)
 **Sources:** FaultPolicyDef.java, ThresholdFaultPolicy.java, AnnotationValidationStep.java
 **Exploration:** quick
 **Status:** captured
 
-## D7: Additive extension — new ClassNodeDescriptor + classNodes list
+## D7: Sealed NodeDescriptor — InterfaceNode | ClassNode
 
-**Choice:** New `ClassNodeDescriptor(String id, String className)` record. `GraphDescriptor` gains `List<ClassNodeDescriptor> classNodes`. Processor discovers `@DesiredNode` classes, groups by (namespace, name), merges into matching GraphDescriptor or creates new one. Recorder handles both lists with separate instantiation paths.
+**Choice:** Refactor `NodeDescriptor` into a sealed interface with two record variants. Single `List<NodeDescriptor> nodes` in `GraphDescriptor`. Recorder uses pattern matching for exhaustive handling.
+```java
+sealed interface NodeDescriptor permits NodeDescriptor.InterfaceNode, NodeDescriptor.ClassNode {
+    String id();
+    record InterfaceNode(String id, String methodName, String returnTypeName,
+                         HumanGating humanGating) implements NodeDescriptor {}
+    record ClassNode(String id, String className) implements NodeDescriptor {}
+}
+```
 **Alternatives:**
-- Sealed interface (`NodeDescriptor` → `InterfaceNode | ClassNode`) — cleaner types but refactors existing working code
+- Parallel lists (`List<NodeDescriptor> nodes` + `List<ClassNodeDescriptor> classNodes`) — additive but introduces unnecessary complexity: two iteration paths in the recorder, every consumer must handle both lists, future node forms add yet another list
 - Separate pipeline — class-based nodes produce own GoalCompiler beans. Defeats "same graph" semantics.
-**Rationale:** Additive — follows the proven evolution pattern from #104 (GoalMethodDescriptor). Existing NodeDescriptor and its processing path are untouched. Cross-frontend duplicate detection happens naturally when both node lists are merged before ID validation.
-**Trade-offs:** GraphDescriptor has two node lists to manage. Recorder has two instantiation paths. Acceptable complexity for zero disruption to existing code.
+**Rationale:** Pre-release platform — cost of refactoring is always worth paying for the right design. A single sealed interface gives exhaustive switch at compile time, natural interleaving, single loop in the recorder. Quarkus recorder serialization supports sealed record variants.
+**Trade-offs:** Existing code using `NodeDescriptor` record must migrate to `NodeDescriptor.InterfaceNode`. Mechanical change — rename + add `implements NodeDescriptor`.
 **Depends on:** D2 (namespace/name matching for merge)
-**Sources:** GraphDescriptor.java, NodeDescriptor.java, DesiredStateGraphRecorder.java, GoalMethodDescriptor.java
-**Exploration:** quick
-**Status:** captured
+**Sources:** GraphDescriptor.java, NodeDescriptor.java, DesiredStateGraphRecorder.java, reviewer R1-02
+**Exploration:** quick → revised after decision review (R1-02)
+**Status:** revised
 
 ## D8: Class-only graphs are static — graph-level annotations require @DesiredState interface
 
