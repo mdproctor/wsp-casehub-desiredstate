@@ -2,7 +2,7 @@
 
 ## State
 branch: issue-105-class-based-desirednode
-state: active
+state: closing:review
 project-sha: ea49a97ebfaf7fc2f1743c6960680712f072bb09
 date: 2026-08-21
 issue-repo: casehubio/casehub-desiredstate
@@ -11,13 +11,14 @@ design-repo: project
 design-section-hashes: 979de182:## Artifact Schema|4d2cc5ab:## §1 Introduction and Goals|4f6b26ef:## §2 Constraints|39b76cb9:## §3 Context and Scope|74aa736f:## §4 Solution Strategy|9ca8de62:## §5 Building Block View|f1938c56:## §6 Runtime View|65807a21:## §7 Deployment View|a03d508f:## §8 Crosscutting Concepts|b2e1b57c:## §9 Journeys and Chapters|598f3a04:## §10 Architectural Decisions|1f604475:## §11 Quality Requirements|af5f260f:## §12 Risks and Technical Debt|42d51385:## §13 Glossary
 flyway-next-v: none
 
+evidence-era: true
 ## Queue
 - [ ] casehubio/casehub-desiredstate#105 — Issue #105 ← active
-  - [ ] Batch 1: Foundation
-    - [ ] Task 1: Sealed NodeDescriptor refactoring
-  - [ ] Batch 2: DeclareNode core
-    - [ ] Task 2: DeclareNode annotation + class scan + class-only graphs
-    - [ ] Task 3: Graph merge + type-safe deps + CDI qualifier
-  - [ ] Batch 3: Fault policy + validation
-    - [ ] Task 4: FaultPolicyDef on DeclareNode classes
-    - [ ] Task 5: Two-phase validation + misuse detection
+  - [x] Batch 1: Foundation
+    - [x] Task 1: Sealed NodeDescriptor refactoring
+  - [x] Batch 2: DeclareNode core
+    - [x] Task 2: DeclareNode annotation + class scan + class-only graphs
+    - [x] Task 3: Graph merge + type-safe deps + CDI qualifier
+  - [x] Batch 3: Fault policy + validation
+    - [x] Task 4: FaultPolicyDef on DeclareNode classes
+    - [x] Task 5: Two-phase validation + misuse detection
