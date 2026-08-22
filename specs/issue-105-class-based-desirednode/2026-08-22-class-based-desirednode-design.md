@@ -1,4 +1,4 @@
-# Class-Based @DesiredNode — Design Spec
+# Class-Based @DeclareNode — Design Spec
 
 **Date:** 2026-08-22
 **Issue:** casehubio/casehub-desiredstate#105
@@ -13,19 +13,39 @@ CDI uses for bean discovery.
 
 The class-based model complements the interface model:
 - **Interface model** (`@DesiredState` + `@Node`): centralized graph — entire topology in one file
-- **Class model** (`@DesiredNode`): distributed graph — individual nodes scattered across modules
+- **Class model** (`@DeclareNode`): distributed graph — individual nodes scattered across modules
 
 Both produce the same `GraphDescriptor` → `DesiredStateGraphRecorder` pipeline output. When they
 share the same (namespace, name), their nodes merge into a single graph.
 
+### Cross-module Jandex requirement
+
+Cross-module composition — the primary motivation for this model — requires that contributing
+modules include a Jandex index in their JARs. Without it, the build extension cannot discover
+`@DeclareNode` classes from dependency JARs.
+
+**For modules declaring `@DeclareNode` classes:** add `jandex-maven-plugin` to the module's
+`pom.xml` to generate `META-INF/jandex.idx` at build time.
+
+**For consuming applications:** add `quarkus.index-dependency.<name>` entries in
+`application.properties` for each dependency JAR containing `@DeclareNode` classes.
+
+When a `@DependsOn(nodes = ...)` target class is not in the Jandex index, the error is:
+`@DependsOn(nodes) on 'Vpc' references 'DnsRecord' which has no @DeclareNode annotation
+(if the class is in an external JAR, ensure a Jandex index is generated)`.
+
 ---
 
-## Part 1: New Annotation — @DesiredNode
+## Part 1: New Annotation — @DeclareNode
+
+Named `@DeclareNode` (not `@DeclareNode`) to avoid import collision with the API record
+`io.casehub.desiredstate.api.DesiredNode`. Tests that assert on graph nodes AND annotate
+inner classes would otherwise require fully-qualified names.
 
 ```java
 @Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.TYPE)
-public @interface DesiredNode {
+public @interface DeclareNode {
     String namespace() default "";
     String name() default "";
     String id();
@@ -43,11 +63,14 @@ The annotated class must:
 1. Implement `NodeSpec` (directly or via supertype)
 2. Have a public no-arg constructor (for recorder instantiation)
 3. Be concrete (not abstract, not an interface)
+4. Be **stateless** — no mutable fields. The recorder may instantiate the class multiple
+   times (once for node construction, once for fault policy probing). A no-arg constructor
+   with no side effects is required.
 
 ### Programming model
 
 ```java
-@DesiredNode(namespace = "infra", name = "multi-zone", id = "load-balancer")
+@DeclareNode(namespace = "infra", name = "multi-zone", id = "load-balancer")
 @DependsOn(nodes = DnsRecord.class)
 public class LoadBalancer implements NodeSpec {
     @Override
@@ -60,13 +83,13 @@ public class LoadBalancer implements NodeSpec {
 
 ### HumanGating
 
-No `humanGating` attribute on `@DesiredNode`. The class IS the NodeSpec — override
+No `humanGating` attribute on `@DeclareNode`. The class IS the NodeSpec — override
 `NodeSpec.humanGating()` directly. This differs from `@Node(humanGating = ...)` because
 `@Node` methods return a NodeSpec *instance* where the gating is external to the spec.
 
 ### One class = one node
 
-No factory method pattern. Each `@DesiredNode` class declares exactly one node.
+No factory method pattern. Each `@DeclareNode` class declares exactly one node.
 For multiple nodes of the same `NodeSpec` type, use the interface model (`@DesiredState`
 with multiple `@Node` methods returning the same type).
 
@@ -91,17 +114,21 @@ Changes from current:
 ### Resolution
 
 The processor resolves `nodes` class references to node IDs at build time:
-- Find the `@DesiredNode` annotation on the referenced class
+- Find the `@DeclareNode` annotation on the referenced class
 - Extract the `id` attribute → use as the dependency target
-- Error if the referenced class has no `@DesiredNode` annotation
+- Error if the referenced class has no `@DeclareNode` annotation
 
 ### Cross-model references
+
+The `nodes` attribute is available on both `METHOD` and `TYPE` targets, so all five
+combinations work:
 
 | Source | Target | Reference form |
 |--------|--------|---------------|
 | Class → Class | `@DependsOn(nodes = DnsRecord.class)` | Type-safe |
 | Class → Interface node | `@DependsOn("csv-source")` | String ID |
-| Interface node → Class | `@DependsOn("load-balancer")` | String ID |
+| Interface node → Class (type-safe) | `@DependsOn(nodes = LoadBalancer.class)` | Type-safe |
+| Interface node → Class (string) | `@DependsOn("load-balancer")` | String ID |
 | Interface node → Interface node | `@DependsOn("csv-source")` | String ID (unchanged) |
 
 Cross-model string references are validated across all nodes in the merged graph.
@@ -142,24 +169,26 @@ switch (nd) {
     case NodeDescriptor.ClassNode cn -> {
         Class<?> nodeClass = classLoader.loadClass(cn.className());
         NodeSpec spec = (NodeSpec) nodeClass.getDeclaredConstructor().newInstance();
-        nodes.add(new DesiredNode(NodeId.of(cn.id()), spec, HumanGating.NONE));
+        nodes.add(new DesiredNode(NodeId.of(cn.id()), spec, spec.humanGating()));
     }
 }
 ```
 
-For `ClassNode`, `humanGating` in the `DesiredNode` record is `NONE` — the merge with
-`NodeSpec.humanGating()` happens in `DesiredNode.requiresHuman(StepAction)` which
-already ORs `humanGating` with `spec.humanGating()`.
+For `ClassNode`, `humanGating` in the `DesiredNode` record is set from `spec.humanGating()`
+— the effective gating from the NodeSpec implementation. This ensures:
+- `node.humanGating()` reflects the actual gating (OTel span attributes are accurate)
+- `node.requiresHuman()` is correct (OR is idempotent — `spec.humanGating() OR spec.humanGating()`)
+- Node reconstruction patterns (`new DesiredNode(node.id(), newSpec, node.humanGating())`) preserve gating
 
 ---
 
-## Part 4: @FaultPolicyDef on @DesiredNode Classes
+## Part 4: @FaultPolicyDef on @DeclareNode Classes
 
 `@FaultPolicyDef` already targets `{ElementType.TYPE, ElementType.METHOD}`. On a
-`@DesiredNode` class, it scopes the policy to that node's type:
+`@DeclareNode` class, it scopes the policy to that node's type:
 
 ```java
-@DesiredNode(namespace = "infra", name = "zones", id = "load-balancer")
+@DeclareNode(namespace = "infra", name = "zones", id = "load-balancer")
 @FaultPolicyDef(
     faultTypes = {"PROVISION_FAILED"},
     tiers = {
@@ -178,11 +207,11 @@ public class LoadBalancer implements NodeSpec {
 
 - `nodeTypes` is **auto-inferred** from the class's `nodeType()` — no need to specify
 - `@Tier(review = "...")` references a method on the same class (not an interface)
-- Each `@DesiredNode` class has exactly one `nodeType()`, so scoping is unambiguous
+- Each `@DeclareNode` class has exactly one `nodeType()`, so scoping is unambiguous
 
 ### Processor changes
 
-When collecting fault policies from `@DesiredNode` classes:
+When collecting fault policies from `@DeclareNode` classes:
 1. Scan class-level `@FaultPolicyDef` / `@FaultPolicies`
 2. For each, if `nodeTypes` is empty, mark for auto-inference at runtime
 3. Validate review methods exist on the class with correct signature
@@ -191,16 +220,20 @@ When collecting fault policies from `@DesiredNode` classes:
 ### Recorder changes
 
 When creating `ThresholdFaultPolicy` from a class-sourced descriptor:
-1. Instantiate the `@DesiredNode` class (reuse the instance from node construction)
+1. Instantiate the `@DeclareNode` class via no-arg constructor
 2. Probe `nodeType()` → auto-fill `nodeTypes` if empty
 3. Find review methods on the class instance (not the interface impl)
 4. Build `ThresholdFaultPolicy` as normal
+
+Double instantiation (once for node construction in `createGoalCompiler`, once for fault
+policy probing in `createFaultPolicy`) is accepted. `@DeclareNode` classes are required
+to be stateless, so creating multiple instances is harmless.
 
 ---
 
 ## Part 5: Graph Merge Semantics
 
-When `@DesiredNode` classes and a `@DesiredState` interface share the same
+When `@DeclareNode` classes and a `@DesiredState` interface share the same
 (namespace, name), the processor merges them into a single `GraphDescriptor`:
 
 1. **Node merge:** Class-based `ClassNode` descriptors are appended to the interface's
@@ -215,12 +248,61 @@ When `@DesiredNode` classes and a `@DesiredState` interface share the same
 
 ### Class-only graphs
 
-When `@DesiredNode` classes share a (namespace, name) but no `@DesiredState` interface
+When `@DeclareNode` classes share a (namespace, name) but no `@DesiredState` interface
 exists with that name:
 - The processor creates a `GraphDescriptor` with `null` interfaceName and no implClassName
 - No Gizmo impl class is generated (no interface to implement)
 - The recorder creates a static `GoalCompiler` that ignores goals and returns the graph
 - `@Customize`, `@GoalMethod`, and interface-level `@FaultPolicyDef` are unavailable
+
+### Recorder restructuring for class-only graphs
+
+`createGoalCompiler()` must branch on `descriptor.implClassName()`:
+
+```java
+if (descriptor.implClassName() != null) {
+    // Existing path: load interface impl, call @Node methods for InterfaceNode entries
+    Class<?> implClass = classLoader.loadClass(descriptor.implClassName());
+    Object instance = implClass.getDeclaredConstructor().newInstance();
+    List<DesiredNode> capturedNodes = buildNodes(implClass, instance, descriptor);
+    List<Method> graphCustomizers = findGraphCustomizers(implClass);
+    // ... GoalMethod handling as before
+} else {
+    // Class-only path: no interface impl, no customizers, no GoalMethod
+    List<DesiredNode> capturedNodes = buildClassOnlyNodes(descriptor);
+    // Return static GoalCompiler
+    return new RuntimeValue<>((goals, factory) ->
+        CompilationResult.single(factory.of(capturedNodes, capturedDeps)));
+}
+```
+
+`buildNodes()` uses pattern matching on `NodeDescriptor` variants (§3 snippet).
+`findGraphCustomizers()` returns empty list when `implClassName` is null.
+`goalMethod` is always null for class-only graphs (enforced by validation).
+
+### CDI qualifier on GoalCompiler beans
+
+All `GoalCompiler` synthetic beans — both interface-sourced and class-sourced — are
+registered with `@DesiredStateQualifier(namespace, name)`. This fixes a pre-existing
+gap from #102 where the qualifier annotation exists but was never applied:
+
+```java
+syntheticBeans.produce(
+    SyntheticBeanBuildItem.configure(GoalCompiler.class)
+        .scope(ApplicationScoped.class)
+        .unremovable()
+        .setRuntimeInit()
+        .runtimeValue(runtimeValue)
+        .addQualifier()
+            .annotation(DesiredStateQualifier.class)
+            .addValue("namespace", namespace)
+            .addValue("name", name)
+            .done()
+        .done());
+```
+
+Single-graph apps still work — CDI resolves the sole bean without a qualifier.
+Multi-graph apps use `@DesiredStateQualifier` to disambiguate.
 
 ---
 
@@ -232,7 +314,7 @@ New `@BuildStep` or expanded `generateDesiredStateGraphs`:
 
 1. **Scan phase:**
    - Scan `@DesiredState` interfaces (existing)
-   - Scan `@DesiredNode` classes (new)
+   - Scan `@DeclareNode` classes (new)
    - Group class-based nodes by (namespace, name)
 
 2. **Merge phase:**
@@ -240,30 +322,58 @@ New `@BuildStep` or expanded `generateDesiredStateGraphs`:
    - For class-only graphs, create a GraphDescriptor without interface fields
 
 3. **Resolve class references:**
-   - For each `@DependsOn(nodes = ...)`, look up the target class's `@DesiredNode(id = ...)`
+   - For each `@DependsOn(nodes = ...)`, look up the target class's `@DeclareNode(id = ...)`
    - Convert to `DependencyDescriptor(from, to)` string pairs
 
 4. **Register beans:**
    - One `GoalCompiler` per merged graph (unchanged)
    - `ThresholdFaultPolicy` beans from both sources (unchanged)
 
-### AnnotationValidationStep
+### AnnotationValidationStep — two-phase restructuring
 
-New validations:
+The validator must be restructured from per-interface iteration to a two-phase
+cross-model architecture:
+
+**Phase 1 — Collect:** Scan all `@DesiredState` interfaces AND all `@DeclareNode`
+classes, building a global `Map<GraphKey(namespace, name), MergedNodeSet>` across
+all sources. Each `MergedNodeSet` tracks: node IDs (with source info for error
+messages), adjacency graph (for cycle detection), fault policies.
+
+**Phase 2 — Validate:** Run all validations against the merged sets. Per-interface
+validation (existing) runs first within each interface. Cross-model validation runs
+second across the merged set.
+
+**Per-class validations (new):**
 
 | Check | Error message |
 |-------|---------------|
-| @DesiredNode on non-NodeSpec class | `@DesiredNode on 'Foo' which does not implement NodeSpec` |
-| @DesiredNode on interface | `@DesiredNode on interface 'Bar' — use @DesiredState for interfaces` |
-| @DesiredNode on abstract class | `@DesiredNode on abstract class 'Baz' — must be concrete` |
-| Missing no-arg constructor | `@DesiredNode class 'Qux' must have a public no-arg constructor` |
-| Duplicate node ID (cross-model) | `Duplicate node id 'lb' — declared on LoadBalancer and interface method lbNode` |
-| @DependsOn(nodes) target missing @DesiredNode | `@DependsOn(nodes) on 'Vpc' references 'DnsRecord' which has no @DesiredNode annotation` |
-| @DependsOn(nodes) target not NodeSpec | `@DependsOn(nodes) references 'NotASpec' which does not implement NodeSpec` |
+| @DeclareNode on non-NodeSpec class | `@DeclareNode on 'Foo' which does not implement NodeSpec` |
+| @DeclareNode on interface | `@DeclareNode on interface 'Bar' — use @DesiredState for interfaces` |
+| @DeclareNode on abstract class | `@DeclareNode on abstract class 'Baz' — must be concrete` |
+| Missing no-arg constructor | `@DeclareNode class 'Qux' must have a public no-arg constructor` |
 | @FaultPolicyDef review method missing on class | `@Tier review 'createReview' not found on class LoadBalancer` |
 | @FaultPolicyDef review method bad signature on class | `Review method 'createReview' on LoadBalancer must accept (FaultEvent, DesiredStateGraph)` |
 
-Existing validations remain unchanged for the interface model.
+**Cross-model validations (new):**
+
+| Check | Error message |
+|-------|---------------|
+| Duplicate node ID across models | `Duplicate node id 'lb' — declared on LoadBalancer and interface method lbNode` |
+| @DependsOn(nodes) target missing @DeclareNode | `@DependsOn(nodes) on 'Vpc' references 'DnsRecord' which has no @DeclareNode annotation (if in external JAR, ensure Jandex index)` |
+| @DependsOn(nodes) target not NodeSpec | `@DependsOn(nodes) references 'NotASpec' which does not implement NodeSpec` |
+| Cross-model @DependsOn string ref unresolved | `@DependsOn on 'lbNode' references 'missing-id' which is not declared as @Node or @DeclareNode` |
+| Cross-model circular dependency | `Circular dependency detected: lb → dns → lb` |
+
+**Annotation misuse validations (new):**
+
+| Check | Error message |
+|-------|---------------|
+| @DeclareNode + @DesiredState on same type | `'Foo' has both @DeclareNode and @DesiredState — use one or the other` |
+| @GoalMethod on @DeclareNode class | `@GoalMethod on @DeclareNode class 'Foo' — @GoalMethod requires a @DesiredState interface` |
+| @Node on @DeclareNode class | `@Node on @DeclareNode class 'Foo' — @Node is for @DesiredState interfaces` |
+| @Customize on @DeclareNode class | `@Customize on @DeclareNode class 'Foo' — @Customize requires a @DesiredState interface` |
+
+Existing per-interface validations remain unchanged.
 
 ---
 
@@ -308,38 +418,46 @@ to `null`, or update all call sites. Since pre-release, update all call sites.
 ### Unit tests (deployment/)
 
 **ClassBasedNodeTest** — core class-based node functionality:
-- `@DesiredNode` class → GoalCompiler bean → graph contains the node
-- Node ID matches `@DesiredNode(id = ...)`
+- `@DeclareNode` class → GoalCompiler bean → graph contains the node
+- Node ID matches `@DeclareNode(id = ...)`
 - NodeType from `nodeType()` method
 - NodeSpec data preserved
-- HumanGating from `NodeSpec.humanGating()` override
+- HumanGating from `NodeSpec.humanGating()` override preserved on `DesiredNode` record
+- `@DesiredStateQualifier` applied to GoalCompiler bean
 
 **ClassBasedDependencyTest** — type-safe dependencies:
 - `@DependsOn(nodes = {A.class})` → Dependency(from, to) wired
 - Mixed `@DependsOn(value = "x", nodes = {A.class})` → both dependencies wired
 - `@DependsOn(nodes = ...)` on class, `@DependsOn("...")` on interface methods → all wired
+- `@DependsOn(nodes = ...)` on interface `@Node` method → resolved via target's `@DeclareNode(id)`
 
 **MergedGraphTest** — interface + class merge:
-- `@DesiredState` interface + `@DesiredNode` classes with same (namespace, name) → single graph
+- `@DesiredState` interface + `@DeclareNode` classes with same (namespace, name) → single graph
 - Duplicate node ID across models → build error
 - Cross-model string references resolve
+- Cross-model cycle detection
 
 **ClassOnlyGraphTest** — no interface:
-- Multiple `@DesiredNode` classes with same (namespace, name), no `@DesiredState` → graph
+- Multiple `@DeclareNode` classes with same (namespace, name), no `@DesiredState` → graph
 - GoalCompiler ignores goals, returns static graph
+- No NPE on null `implClassName`
 
 **ClassBasedFaultPolicyTest** — fault policy on classes:
-- `@FaultPolicyDef` on `@DesiredNode` class → ThresholdFaultPolicy bean
+- `@FaultPolicyDef` on `@DeclareNode` class → ThresholdFaultPolicy bean
 - `nodeTypes` auto-inferred from `nodeType()`
 - Review method on class invoked correctly
 
 **ClassBasedValidationTest** — error cases:
 - Each validation error from Part 6 verified with a negative-test class
-- @DesiredNode on non-NodeSpec → error
-- @DesiredNode on interface → error
-- @DesiredNode on abstract → error
-- @DependsOn(nodes) target missing @DesiredNode → error
+- @DeclareNode on non-NodeSpec → error
+- @DeclareNode on interface → error
+- @DeclareNode on abstract → error
+- @DependsOn(nodes) target missing @DeclareNode → error
 - Missing no-arg constructor → error
+- @DeclareNode + @DesiredState on same type → error
+- @GoalMethod on @DeclareNode class → error
+- @Node on @DeclareNode class → error
+- @Customize on @DeclareNode class → error
 
 ### Sealed NodeDescriptor migration
 
