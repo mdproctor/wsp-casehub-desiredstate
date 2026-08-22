@@ -2,7 +2,7 @@
 
 ## State
 branch: issue-105-class-based-desirednode
-state: scaffolded
+state: active
 project-sha: ea49a97ebfaf7fc2f1743c6960680712f072bb09
 date: 2026-08-21
 issue-repo: casehubio/casehub-desiredstate
@@ -13,3 +13,11 @@ flyway-next-v: none
 
 ## Queue
 - [ ] casehubio/casehub-desiredstate#105 — Issue #105 ← active
+  - [ ] Batch 1: Foundation
+    - [ ] Task 1: Sealed NodeDescriptor refactoring
+  - [ ] Batch 2: DeclareNode core
+    - [ ] Task 2: DeclareNode annotation + class scan + class-only graphs
+    - [ ] Task 3: Graph merge + type-safe deps + CDI qualifier
+  - [ ] Batch 3: Fault policy + validation
+    - [ ] Task 4: FaultPolicyDef on DeclareNode classes
+    - [ ] Task 5: Two-phase validation + misuse detection
