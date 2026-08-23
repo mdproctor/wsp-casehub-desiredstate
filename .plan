@@ -17,5 +17,5 @@ flyway-next-v: none
     - [x] Task 1: GoalCompiler qualifier application
     - [x] Task 2: DependsOn nodes fix + fault policy merge
   - [ ] Batch 2: Validation Restructuring
-    - [ ] Task 3: MergedGraph + single-scan refactor
+    - [x] Task 3: MergedGraph + single-scan refactor
     - [ ] Task 4: Cross-model validations + additional checks
