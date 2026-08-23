@@ -14,7 +14,7 @@ flyway-next-v: none
 ## Queue
 - [ ] casehubio/casehub-desiredstate#110 — Issue #110 ← active
   - [ ] Batch 1: Processor Fixes
-    - [ ] Task 1: GoalCompiler qualifier application
+    - [x] Task 1: GoalCompiler qualifier application
     - [ ] Task 2: DependsOn nodes fix + fault policy merge
   - [ ] Batch 2: Validation Restructuring
     - [ ] Task 3: MergedGraph + single-scan refactor
