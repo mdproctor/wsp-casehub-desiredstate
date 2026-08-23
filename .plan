@@ -2,7 +2,7 @@
 
 ## State
 branch: issue-110-qualifier-cross-validation
-state: closing:review
+state: closing:promoted
 project-sha: dbf8b1f0deb7253e49a257bbc153da633a12c8c1
 date: 2026-08-23
 issue-repo: casehubio/casehub-desiredstate
