@@ -1,0 +1,21 @@
+# Work Plan — issue-103-ops-nodespec-migration
+
+## State
+branch: issue-103-ops-nodespec-migration
+state: closing:promoted
+project-sha: a8d162e402dd402ecf90d451ca0b8d66ca599d19
+date: 2026-08-23
+issue-repo: casehubio/casehub-desiredstate
+covers: 103
+design-repo: project
+design-section-hashes: 979de182:## Artifact Schema|4d2cc5ab:## §1 Introduction and Goals|4f6b26ef:## §2 Constraints|39b76cb9:## §3 Context and Scope|74aa736f:## §4 Solution Strategy|9ca8de62:## §5 Building Block View|f1938c56:## §6 Runtime View|65807a21:## §7 Deployment View|a03d508f:## §8 Crosscutting Concepts|b2e1b57c:## §9 Journeys and Chapters|598f3a04:## §10 Architectural Decisions|1f604475:## §11 Quality Requirements|af5f260f:## §12 Risks and Technical Debt|42d51385:## §13 Glossary
+flyway-next-v: none
+
+evidence-era: true
+## Queue
+- [ ] casehubio/casehub-desiredstate#103 — Issue #103 ← active
+  - [x] Batch 1: Migrate+remove
+    - [x] Task 1: Migrate callers + remove deprecated method
+  - [x] Batch 2: Issues
+    - [x] Task 2: File ops issue
+    - [x] Task 3: File follow-up issue
