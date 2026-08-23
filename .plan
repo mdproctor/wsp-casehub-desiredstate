@@ -1,0 +1,22 @@
+# Work Plan — issue-110-qualifier-cross-validation
+
+## State
+branch: issue-110-qualifier-cross-validation
+state: closing:promoted
+project-sha: dbf8b1f0deb7253e49a257bbc153da633a12c8c1
+date: 2026-08-23
+issue-repo: casehubio/casehub-desiredstate
+covers: 110,111
+design-repo: project
+design-section-hashes: 979de182:## Artifact Schema|4d2cc5ab:## §1 Introduction and Goals|4f6b26ef:## §2 Constraints|39b76cb9:## §3 Context and Scope|74aa736f:## §4 Solution Strategy|9ca8de62:## §5 Building Block View|f1938c56:## §6 Runtime View|65807a21:## §7 Deployment View|a03d508f:## §8 Crosscutting Concepts|b2e1b57c:## §9 Journeys and Chapters|598f3a04:## §10 Architectural Decisions|1f604475:## §11 Quality Requirements|af5f260f:## §12 Risks and Technical Debt|42d51385:## §13 Glossary
+flyway-next-v: none
+
+evidence-era: true
+## Queue
+- [ ] casehubio/casehub-desiredstate#110 — Issue #110 ← active
+  - [x] Batch 1: Processor Fixes
+    - [x] Task 1: GoalCompiler qualifier application
+    - [x] Task 2: DependsOn nodes fix + fault policy merge
+  - [x] Batch 2: Validation Restructuring
+    - [x] Task 3: MergedGraph + single-scan refactor
+    - [x] Task 4: Cross-model validations + additional checks
