@@ -99,18 +99,19 @@
 **Exploration:** quick
 **Status:** revised (R1-05: require explicit @GraphRule per method to prevent accidental discovery)
 
-## D9: @Reaches reachability direction
+## D9: Traversal direction — @Reaches and @DirectDep
 
-**Choice:** Follow dependency direction by default, with optional direction override
+**Choice:** Follow dependency direction by default, with optional direction override on both traversal annotations
 **Alternatives:**
 - Forward only (no override) — can't express "find what depends on me" in annotations
 - Reverse direction as default — 'who consumes this?' but less intuitive for the common case
 - Either direction (bidirectional search) — most permissive but surprising matches
-**Rationale:** @Reaches(type="source") walks the dependency chain from the previous binding toward roots (DEPENDENCIES direction) by default. "tx depends on ... depends on source." Natural reading. Optional `direction` attribute: `@Reaches(type="consumer", direction=DEPENDENTS)` walks reverse edges, finding nodes that depend on the binding. Default preserves forward traversal for the common case; `direction=DEPENDENTS` enables reverse traversal without falling back to imperative rules. Direction values match DesiredStateGraph API: DEPENDENCIES maps to `dependenciesOf()`, DEPENDENTS maps to `dependentsOf()`.
-**Trade-offs:** Direction attribute adds one more option for rule authors. Default (DEPENDENCIES) handles most patterns; override is opt-in for reverse traversal.
-**Sources:** ImmutableDesiredStateGraph forward/reverse edge model, issue #106 examples, review R1-03
+- Direction on @Reaches only — creates asymmetry where direct-edge reverse traversal requires transitive @Reaches
+**Rationale:** Both traversal annotations accept an optional `direction` attribute, default DEPENDENCIES. `@Reaches(type="source")` walks the dependency chain transitively toward roots. `@DirectDep(type="validator")` matches a direct dependency only. Both accept `direction=DEPENDENTS` for reverse traversal: `@Reaches(type="consumer", direction=DEPENDENTS)` finds transitive dependents; `@DirectDep(type="validator", direction=DEPENDENTS)` binds a node that directly depends on the binding (from `dependentsOf()`). Direction values match DesiredStateGraph API: DEPENDENCIES maps to `dependenciesOf()`, DEPENDENTS maps to `dependentsOf()`. Without direction on @DirectDep, "bind the validator that directly depends on this transformer" forces @Reaches with DEPENDENTS — which overmatches transitively.
+**Trade-offs:** Direction attribute adds one more option on two annotations. Default (DEPENDENCIES) handles most patterns; override is opt-in for reverse traversal.
+**Sources:** ImmutableDesiredStateGraph forward/reverse edge model, issue #106 examples, review R1-03, R2-01
 **Exploration:** quick
-**Status:** revised (R1-03: added optional direction attribute, default DEPENDENCIES)
+**Status:** revised (R1-03: added direction to @Reaches; R2-01: extended direction to @DirectDep for consistency)
 
 ## D10: @GraphRule vs FaultPolicy boundary
 
