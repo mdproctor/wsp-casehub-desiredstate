@@ -1,14 +1,15 @@
 ## D1: Parameter binding model
 
-**Choice:** Sequential chaining
+**Choice:** Sequential chaining with optional named binding via `of`
 **Alternatives:**
-- Explicit reference via `of` attribute — more flexible but verbose
+- Sequential chaining only — simple but can't express branching patterns without splitting into multiple rules
 - All relative to first @Match — simpler but limits multi-hop patterns
-**Rationale:** Each @DirectDep/@Reaches is relative to the PREVIOUS parameter. Left-to-right reading order matches rule-engine intuition (Drools pattern chaining). @Match binds independently, subsequent annotations navigate from the previous binding.
-**Trade-offs:** Cannot reference an arbitrary earlier binding by name — must chain linearly. Multi-hop patterns with branching require multiple rules.
-**Sources:** Issue #106 body (parameterized signature examples), Drools sequential pattern matching
+- Mandatory named bindings — flexible but verbose for simple chains
+**Rationale:** Each @DirectDep/@Reaches is relative to the PREVIOUS parameter by default (sequential chaining). All traversal annotations (@DirectDep, @Reaches) and guards (@NotExists) accept an optional `of` attribute to reference an earlier binding by parameter name. When `of` is omitted, sequential chaining applies. Simple linear chains use implicit sequential chaining for ergonomics; branching patterns use `of` for explicit reference. Bindings are named by their Java parameter name (Jandex MethodParameterInfo, standard for Quarkus projects compiled with `-parameters`).
+**Trade-offs:** `of` adds optionality — rule authors choose between implicit sequential and explicit named reference. Default (sequential) handles most patterns; `of` is opt-in for branching.
+**Sources:** Issue #106 body (parameterized signature examples), Drools sequential pattern matching, review R1-02
 **Exploration:** quick
-**Status:** captured
+**Status:** revised (R1-02: unified sequential + named binding; `of` available on all annotations, not just @NotExists)
 
 ## D2: Standalone rule scoping
 
@@ -24,28 +25,30 @@
 
 ## D3: @NotExists semantics
 
-**Choice:** Both modes via attribute
+**Choice:** Both modes via attribute, with explicit direction
 **Alternatives:**
 - Guard on type existence only — simpler but less expressive
 - Guard on specific relationship only — misses global absence checks
-- Sequential chaining only — inconsistent when global guard is needed
-**Rationale:** `@NotExists(type = "validator")` defaults to global guard (fires only if NO node of that type exists). `@NotExists(type = "validator", of = "transformer")` checks relative to the named binding (fires for each transformer that has no validator dependency). Both modes serve distinct use cases.
-**Trade-offs:** Two modes increase annotation complexity and engine branching. The `of` attribute introduces non-sequential reference — a departure from D1's chaining model, but justified because @NotExists is fundamentally different (guard vs binding).
-**Sources:** Drools 'not' pattern (global), Rete negative join (relationship-specific)
+- Direction as separate annotations (@NotExistsUpstream/@NotExistsDownstream) — proliferates annotations
+- Implicit direction (always same as @Reaches) — wrong for the primary use case
+**Rationale:** `@NotExists(type = "validator")` defaults to global guard (fires only if NO node of that type exists in the graph). `@NotExists(type = "validator", of = "transformer", direction = DEPENDENTS)` checks relative to the named binding in the specified direction. Direction is REQUIRED when `of` is specified — no implicit default, forcing rule authors to be explicit about traversal semantics. `DEPENDENCIES` checks forward edges (what the binding depends on, via `dependenciesOf()`). `DEPENDENTS` checks reverse edges (what depends on the binding, via `dependentsOf()`). The `of` attribute references a binding by parameter name (unified with D1's named binding model).
+**Trade-offs:** Three attributes (type, of, direction) for relational guards. Necessary complexity — the motivating use case ("every transformer needs a downstream validator") requires DEPENDENTS direction, which cannot be inferred from context.
+**Sources:** Drools 'not' pattern (global), Rete negative join (relationship-specific), DesiredStateGraph.dependenciesOf/dependentsOf, review R1-03
 **Exploration:** quick
-**Status:** captured
+**Status:** revised (R1-03: added explicit direction attribute, required when `of` is specified; eliminated ambiguity in traversal semantics)
 
 ## D4: Fixed-point loop semantics
 
-**Choice:** Collect-then-apply
+**Choice:** Collect-then-apply with conflict detection and idempotency requirement
 **Alternatives:**
 - Apply-per-rule — faster convergence but rule ordering matters, non-deterministic
 - Stratified — handles priority but adds complexity
-**Rationale:** Run ALL rules against the current graph snapshot, collect ALL mutations, apply them all at once, re-run on the new graph. Rules see a consistent snapshot per iteration. Deterministic — rule ordering within an iteration doesn't affect the result.
-**Trade-offs:** May require more iterations to converge than apply-per-rule (a rule can't see another rule's mutations until next iteration). Conflicting mutations within one iteration need a resolution strategy (dedup, last-wins, or error).
-**Sources:** Standard production system semantics, Rete algorithm
+- Silent last-wins on conflict — non-deterministic, violates collect-then-apply invariant
+**Rationale:** Run ALL rules against the current graph snapshot, collect ALL mutations, apply them all at once, re-run on the new graph. Rules see a consistent snapshot per iteration. Deterministic — rule ordering within an iteration doesn't affect the result. Conflict resolution: adopt FaultPolicyEngine's existing pattern — group mutations by target NodeId, throw ConflictingMutationException when multiple distinct mutations target the same node in the same iteration. Additionally, validate the composed mutation set for cycle introduction before applying. Idempotency requirement: rules must be deterministic functions of graph state — given the same graph, a rule must produce the same mutations (or no mutations). Non-deterministic specs (timestamps, random seeds) prevent convergence. The annotation model handles idempotency by construction: @NotExists only matches when the pattern is absent, so after the first iteration adds the missing node, the guard no longer fires. Imperative rules bear this responsibility explicitly.
+**Trade-offs:** Error on conflict is strict — no "last-wins" flexibility. This is correct: if two rules disagree about a node's state, that's a rule design error, not a conflict to resolve silently. May require more iterations to converge than apply-per-rule.
+**Sources:** Standard production system semantics, Rete algorithm, FaultPolicyEngine.evaluate(), ConflictingMutationException, review R1-04, R1-08
 **Exploration:** quick
-**Status:** captured
+**Status:** revised (R1-04: explicit conflict resolution via ConflictingMutationException; R1-08: explicit idempotency requirement)
 
 ## D5: Module placement
 
@@ -73,37 +76,50 @@
 
 ## D7: Iteration cap and non-convergence
 
-**Choice:** 100 iterations, RuntimeException
+**Choice:** 100 iterations, RuntimeException with diagnostic guidance
 **Alternatives:**
 - Configurable via @DesiredState attribute — flexibility most users won't need
 - 50 iterations with warning + truncate — risks silently broken graphs
-**Rationale:** Cap at 100 iterations. If exceeded, throw RuntimeException naming the rules that produced mutations in the last iteration. Real convergence happens in 2-5 iterations; 100 is a generous safety net.
+**Rationale:** Cap at 100 iterations. If exceeded, throw RuntimeException naming the rules that produced mutations in the last iteration. Error message should suggest non-idempotent rules as a likely cause: rules that produce non-deterministic specs (timestamps, random seeds) or fail to check existing graph state before producing mutations. Real convergence happens in 2-5 iterations; 100 is a generous safety net.
 **Trade-offs:** Hard failure on non-convergence means a bad rule set prevents startup entirely. This is correct — a non-converging graph is never safe to deploy.
-**Sources:** Drools iteration caps, production system convergence literature
+**Sources:** Drools iteration caps, production system convergence literature, review R1-08
 **Exploration:** quick
-**Status:** captured
+**Status:** revised (R1-08: diagnostic guidance for non-idempotent rules in error message)
 
 ## D8: Standalone class shape
 
-**Choice:** Rule containers — convention over annotation
+**Choice:** Explicit @GraphRule per method
 **Alternatives:**
+- Convention over annotation (every matching public method is a rule) — accidental discovery hazard
 - Single method per class — SRP, simple, one-class-one-rule
-- Multiple annotated methods — explicit but more annotation burden
-**Rationale:** A standalone class is a container. Every public method returning `List<GraphMutation>` that has valid rule parameters is automatically a rule. @GraphRule(graph = "...") on the class scopes all methods to that graph. Maximally concise, convention-driven.
-**Trade-offs:** Implicit discovery — adding a public method that happens to return `List<GraphMutation>` accidentally makes it a rule. Mitigated by the parameter signature requirement (must have either DesiredStateGraph or annotated DesiredNode params).
+**Rationale:** A standalone class is scoped to a graph by class-level `@GraphRule(graph = "...")`. Each rule method within the class is explicitly marked with `@GraphRule`. Consistent with @Node method marking on @DesiredState interfaces (#102) and with D6's interface-level @GraphRule. Eliminates the accidental discovery hazard: utility methods like `rebalanceIfNeeded(DesiredStateGraph graph)` returning `List<GraphMutation>` are NOT accidentally treated as rules. One annotation per method — trivial cost, significant safety gain.
+**Trade-offs:** Slightly more verbose than convention-based discovery. Worth it for safety and consistency with the established @Node pattern.
 **Depends on:** D2 (standalone scoping)
-**Sources:** Issue #106 body (standalone class example)
+**Sources:** Issue #106 body (standalone class example), @Node method marking pattern from #102, review R1-05
 **Exploration:** quick
-**Status:** captured
+**Status:** revised (R1-05: require explicit @GraphRule per method to prevent accidental discovery)
 
 ## D9: @Reaches reachability direction
 
-**Choice:** Follow dependency direction (forward edges toward roots)
+**Choice:** Follow dependency direction by default, with optional direction override
 **Alternatives:**
-- Reverse direction — 'who consumes this?' but less intuitive
-- Either direction — most permissive but surprising matches
-**Rationale:** @Match(type="tx") @Reaches(type="source") walks the dependency chain from tx toward roots. "tx depends on ... depends on source." Natural reading — dependencies point toward prerequisites.
-**Trade-offs:** Cannot express "find what depends on me" with @Reaches. Use @Match with reverse graph queries in imperative rules for that pattern.
-**Sources:** ImmutableDesiredStateGraph forward/reverse edge model, issue #106 examples
+- Forward only (no override) — can't express "find what depends on me" in annotations
+- Reverse direction as default — 'who consumes this?' but less intuitive for the common case
+- Either direction (bidirectional search) — most permissive but surprising matches
+**Rationale:** @Reaches(type="source") walks the dependency chain from the previous binding toward roots (DEPENDENCIES direction) by default. "tx depends on ... depends on source." Natural reading. Optional `direction` attribute: `@Reaches(type="consumer", direction=DEPENDENTS)` walks reverse edges, finding nodes that depend on the binding. Default preserves forward traversal for the common case; `direction=DEPENDENTS` enables reverse traversal without falling back to imperative rules. Direction values match DesiredStateGraph API: DEPENDENCIES maps to `dependenciesOf()`, DEPENDENTS maps to `dependentsOf()`.
+**Trade-offs:** Direction attribute adds one more option for rule authors. Default (DEPENDENCIES) handles most patterns; override is opt-in for reverse traversal.
+**Sources:** ImmutableDesiredStateGraph forward/reverse edge model, issue #106 examples, review R1-03
 **Exploration:** quick
+**Status:** revised (R1-03: added optional direction attribute, default DEPENDENCIES)
+
+## D10: @GraphRule vs FaultPolicy boundary
+
+**Choice:** Separate mechanisms, no shared pattern matching infrastructure
+**Alternatives:**
+- Shared pattern matching engine in runtime/ usable by both — architecturally clean but premature
+- Unified rule model replacing both — radical scope change beyond issue #106
+**Rationale:** @GraphRule and FaultPolicy serve architecturally distinct roles with different inputs and execution contexts. @GraphRule operates at compile-time on desired graph structure only, with fixed-point convergence to quiescence. FaultPolicy operates at runtime, responding to FaultEvents with access to desired graph + actual state + fault context. The input signatures differ (`DesiredStateGraph` only vs `FaultEvent + DesiredStateGraph + ActualState`), the execution contexts differ (GoalCompiler phase vs reconciliation cycle), and the matching semantics differ (structural pattern matching vs event-type + node-type filtering). ThresholdFaultPolicy's type filtering is well-served by its builder API and the TypedFaultPolicy abstraction (#112) — it doesn't need a general-purpose pattern matching engine. If a future issue surfaces a need for FaultPolicy to do structural graph matching, the engine can be extracted from annotations/runtime/ to runtime/ at that point — the extraction is a class move, not a redesign.
+**Trade-offs:** Two parallel graph mutation mechanisms exist in the platform. Acceptable because they serve fundamentally different triggers and contexts. Premature unification would force FaultPolicy's event-driven model into a pattern-matching paradigm that doesn't fit its primary use case.
+**Sources:** FaultPolicy.java, ThresholdFaultPolicy.java, TypedFaultPolicy (#112), FaultPolicyEngine.java, review R1-07
+**Exploration:** quick (surfaced by reviewer)
 **Status:** captured
