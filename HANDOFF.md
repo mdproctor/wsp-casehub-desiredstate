@@ -2,35 +2,23 @@
 
 ## Last Session
 
-Landed #98, #97, #99 — constructor telescope, eviction listener, protocol update.
-ReconciliationLoop.Builder replaces 7 telescope constructors. CbrProposalTracker
-CDI injection bug fixed (was creating separate instance, breaking CBR outcome events).
-FaultCountEvictionListener with cross-namespace eviction — no namespace registry needed.
-reconcileTypes() listener firing removed (semantic fix). onTenantStopped lifecycle hook.
-CDI priority protocol split Tier 1 into 1a (functional fallback) / 1b (no-op).
-Design-reviewed (3 rounds, 11 issues, all verified, $12.32).
+Designed and began implementing #106 (@GraphRule — declarative graph rewriting
+for the annotation compilation pipeline). 10 design decisions captured, 6
+revised in standard review. Spec written and reviewed — key additions from
+review: mutation ordering (AddNode→RemoveNode→AddDependency), cycle
+pre-validation, CompilationResult.Lifecycle handling. Implementation plan:
+3 batches, 5 tasks. Batch 1 (Foundation) complete — annotations, IR types,
+GraphDescriptor extension, GraphMutation.targetNodeId(), exception classes.
+All 16 modules build green.
 
 ## Immediate Next Step
 
-Pick next from What's Next table. #86 (multi-tier escalation) is the natural
-follow-on — builds on the eviction and fault count infrastructure.
-
-## What's Left
-
-- casehub-ops — remove App* workaround clones now that #84 shipped · S · Low
-- Hygiene: unrecovered blog/specs on closed branches issue-57, issue-85, issue-93 · S · Low
-- Hygiene: unstamped branch issue-384-retire-reactive · XS · Low
-
-## What's Next
-
-| # | Description | Scale | Complexity | Notes |
-|---|-------------|-------|------------|-------|
-| #86 | Multi-tier escalation support in ThresholdFaultPolicy | M | Med | Builds on eviction infrastructure |
-| #27 | Managed pipeline mode — Quarkus Flow per stage | M | High | On pause stack |
-| #25 | Desired-state as alternative case planning model | L | High | Depends on parent#233 |
-| #74 | Logistics example with blocks summarisation feeding RAS | M | Med | Design question — integration scope |
+Run `/work` to continue on `issue-106-graph-rule`. Batch 2 starts with Task 3:
+GraphRuleEngine core (imperative rules, fixed-point loop, conflict detection,
+cycle pre-validation, mutation ordering).
 
 ## References
 
-- Spec: `docs/specs/2026-07-30-constructor-eviction-protocol-design.md` (posted to #98)
-- Design review: `~/adr/casehub-desiredstate/constructor-eviction-protocol-20260730-052418/`
+- Spec: `specs/issue-106-graph-rule/2026-08-24-graph-rule-design.md`
+- Decisions: `specs/issue-106-graph-rule/decisions.md`
+- Plan: `plans/2026-08-25-graph-rule.md`
