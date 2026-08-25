@@ -33,9 +33,9 @@ matching) and imperative rules (developer does the matching).
 
 **Out of scope:**
 - `@GraphInvariant` (#107) — separate issue, runs after @GraphRule convergence
-- Shared pattern matching infrastructure with FaultPolicy (D10 — separate mechanisms)
-- YAML or TypeScript rule declarations
-- Runtime rule evaluation (rules fire at compile time only)
+- Shared pattern matching infrastructure with FaultPolicy (#114, D10 — separate mechanisms)
+- YAML or TypeScript rule declarations (#109, #108)
+- Runtime rule evaluation (rules fire at graph compilation time only)
 
 ---
 
@@ -52,9 +52,15 @@ Discover @Node / @DeclareNode → Assemble initial graph → Resolve dependencie
   → Emit final DesiredStateGraph
 ```
 
-The fixed-point loop runs at runtime init (same phase as the recorder), because rule
-methods need access to instantiated classes. The build step scans annotations, validates
-signatures, and builds descriptors; the recorder resolves methods and invokes the engine.
+The fixed-point loop runs at Quarkus runtime init (same phase as the recorder), because
+rule methods need access to instantiated classes. The build step (Quarkus build-time
+augmentation) scans annotations, validates signatures, and builds descriptors; the recorder
+(runtime init) resolves methods and invokes the engine.
+
+**Terminology:** "Graph compilation" refers to the GoalCompiler's `compile()` call, which
+happens during Quarkus runtime init — not during Quarkus build-time augmentation. The build
+step handles annotation scanning and validation; the rule engine fires during graph
+compilation at runtime init.
 
 For the @GoalMethod path, the rule engine wraps the GoalCompiler lambda — rules fire on
 every `compile()` call, after the goal method produces its graph.
@@ -131,7 +137,8 @@ Binds a node that is transitively reachable from the previous or named binding.
 - `of`: names a binding by Java parameter name. Empty = sequential chaining.
 
 Reachability is computed via BFS from the reference binding, following edges in the
-specified direction, stopping at the first node matching the target type.
+specified direction, collecting all nodes matching the target type. Each reachable match
+produces a separate binding tuple — consistent with @Match's set-producing semantics.
 
 ### @NotExists
 
@@ -150,10 +157,15 @@ Absence guard — prevents the rule from firing when the pattern exists.
 - **Global mode** (`of` empty): fires only if NO node of the target type exists in the
   entire graph. No parameter is bound — the Java parameter type must be `Void`.
 - **Relational mode** (`of` non-empty): fires only if no node of the target type is
-  found as an edge neighbor of the named binding in the specified direction. Rule authors
-  should always specify `direction` explicitly when using `of` — the default DEPENDENCIES
-  applies if omitted, but the build step emits a warning to encourage explicit direction
-  for readability.
+  found as an edge neighbor of the named binding in the specified direction. Direction is
+  required when `of` is specified — omission is a build-time error (D3). The semantic
+  difference between DEPENDENCIES and DEPENDENTS reverses the check entirely, so implicit
+  defaults would mask bugs.
+
+**Transitive absence:** @NotExists checks direct edge neighbors only (relational mode).
+Transitive absence checks ("no node of type X is reachable from this binding") require
+imperative rules — the BFS cost per candidate tuple per iteration makes a declarative
+annotation impractical for the fixed-point model.
 
 ### Direction
 
@@ -201,6 +213,10 @@ public interface MedallionPipeline {
 ```
 
 ### Standalone rule containers
+
+Standalone rule class instances are created via reflection (`newInstance()`), not CDI.
+Rules are pure functions of graph state (D6) — they should not depend on injected
+services. Access configuration through the graph's node specs.
 
 ```java
 @GraphRule(graph = "pipeline:*")
@@ -284,6 +300,10 @@ public record GraphDescriptor(
     GoalMethodDescriptor goalMethod,
     List<GraphRuleDescriptor> graphRules          // NEW
 ) {}
+
+Adding the 9th record component requires updating all `GraphDescriptor` construction sites
+in the processor. Existing sites pass `List.of()` for graphs without rules — mechanical
+migration, no design impact.
 ```
 
 ---
@@ -318,13 +338,45 @@ public class GraphRuleEngine {
             }
 
             detectConflicts(allMutations);
-            graph = applyMutations(graph, allMutations);
+            validateNoCycles(graph, allMutations);
+            graph = applyMutations(graph, sortByType(allMutations));
         }
 
         throw new GraphRuleNonConvergenceException(rules, MAX_ITERATIONS);
     }
 }
 ```
+
+### Mutation ordering
+
+`applyMutations` sorts mutations by type before sequential application:
+
+1. `AddNode` — nodes must exist before edges can reference them
+2. `UpdateNode` — node exists, update in place
+3. `RemoveDependency` — remove edges before removing their endpoints
+4. `AddDependency` — both endpoints now exist
+5. `RemoveNode` — edges already cleaned up
+
+This mirrors the planner's roots-first addition / leaves-first removal invariant and
+ensures independently-produced rule mutations compose correctly regardless of rule
+iteration order.
+
+### Cycle pre-validation
+
+`validateNoCycles(graph, mutations)` builds a tentative edge set from the current graph
+plus all `AddDependency` mutations (minus `RemoveDependency` removals) and runs cycle
+detection on the composed result. If a cycle is found, throws `GraphRuleCycleException`
+with the rule name(s) that produced the cycle-creating mutations and the cycle path.
+
+```java
+public class GraphRuleCycleException extends RuntimeException {
+    private final List<String> ruleNames;
+    private final List<NodeId> cyclePath;
+}
+```
+
+This implements D4's requirement to "validate the composed mutation set for cycle
+introduction before applying."
 
 ### ResolvedGraphRule
 
@@ -346,13 +398,17 @@ record ResolvedGraphRule(
 ### Parameterized evaluation algorithm
 
 1. Find all `@Match` parameters — for each, enumerate all graph nodes matching that type
-2. Form the cross-product of all `@Match` bindings
-3. For each candidate tuple, walk the parameter chain:
+2. Form the cross-product of all `@Match` bindings (evaluated lazily — tuples are generated
+   on demand via nested iteration, not materialized into a collection)
+3. For each candidate tuple, walk the parameter chain (short-circuits on first filter
+   failure — no further parameters are evaluated for a discarded tuple):
    - `@DirectDep`: resolve reference binding (previous param or named via `of`). Query
      `dependenciesOf()` or `dependentsOf()` based on `direction`. Filter by target type.
      If no match, discard this tuple.
    - `@Reaches`: resolve reference binding. BFS along edges in specified `direction`.
-     Stop at first node matching target type. If none found, discard this tuple.
+     Collect all nodes matching target type — each match extends the current tuple into
+     a separate binding (set-producing join, consistent with @Match). If none found,
+     discard this tuple.
    - `@NotExists` (global, `of` empty): scan all graph nodes for target type.
      If found, discard this tuple.
    - `@NotExists` (relational, `of` non-empty): resolve named binding. Query edges in
@@ -363,15 +419,22 @@ record ResolvedGraphRule(
 
 ### Conflict detection
 
-Group mutations by target `NodeId`:
+**Node conflicts:** Group mutations by target `NodeId` (via `GraphMutation.targetNodeId()`
+— extracted to the sealed interface in api/ so both `GraphRuleEngine` and
+`FaultPolicyEngine` share it):
 - `AddNode` → `node.id()`
 - `RemoveNode` → `id`
 - `UpdateNode` → `id`
-- `AddDependency` / `RemoveDependency` → no conflict (edges, not nodes)
+- `AddDependency` / `RemoveDependency` → `null` (no node conflict)
 
 If multiple distinct mutations target the same `NodeId` in one iteration (e.g., two rules
 both `AddNode` with the same ID but different specs), throw `ConflictingMutationException`.
 Duplicate identical mutations are deduplicated silently.
+
+**Edge conflicts:** Group `AddDependency` and `RemoveDependency` mutations by target
+`Dependency`. If both an `AddDependency` and a `RemoveDependency` target the same edge in
+the same iteration, throw `ConflictingMutationException` — contradictory edge mutations
+never converge and would exhaust the iteration cap with a misleading non-convergence error.
 
 ### Non-convergence
 
@@ -424,7 +487,7 @@ private Map<String, List<GraphRuleDescriptor>> scanStandaloneGraphRules(IndexVie
 | @GraphRule on non-static interface method | `@GraphRule on 'ensureValidator' must be a static method` |
 | Return type not `List<GraphMutation>` | `@GraphRule 'ensureValidator' must return List<GraphMutation>` |
 | Imperative param not DesiredStateGraph | `@GraphRule 'rebalance' imperative method first parameter must be DesiredStateGraph` |
-| @NotExists with `of` but default direction | Warning: `@NotExists on parameter 'guard' specifies 'of' without explicit direction — defaults to DEPENDENCIES; consider specifying direction for clarity` |
+| @NotExists with `of` but no direction | `@NotExists on parameter 'guard' specifies 'of' without explicit direction — DEPENDENCIES and DEPENDENTS have opposite semantics; specify direction` |
 | `of` references unknown parameter name | `@DirectDep 'of' references 'foo' — no parameter named 'foo' in ensureValidator` |
 | @GraphRule on non-public standalone method | `@GraphRule on 'ensureMonitor' in PipelineRules must be public` |
 | Standalone class not instantiable | `@GraphRule class PipelineRules must be concrete with a no-arg constructor` |
@@ -447,7 +510,28 @@ if (!descriptor.graphRules().isEmpty()) {
 ```
 
 For the @GoalMethod path, rules are evaluated inside the GoalCompiler lambda, after the
-goal method produces its graph — ensuring rules fire on every compile() call.
+goal method produces its graph — ensuring rules fire on every `compile()` call.
+
+### CompilationResult.Lifecycle handling
+
+When a `@GoalMethod` returns a `CompilationResult` directly, the result may be either
+`SingleGraph` or `Lifecycle(List<Phase>)`. For lifecycle results, the rule engine evaluates
+rules on each phase graph independently:
+
+```java
+if (compilationResult instanceof CompilationResult.Lifecycle lifecycle) {
+    List<Phase> rewrittenPhases = new ArrayList<>();
+    for (Phase phase : lifecycle.phases()) {
+        DesiredStateGraph rewritten = engine.evaluate(phase.graph(), resolved);
+        rewrittenPhases.add(new Phase(phase.id(), rewritten, phase.completionCondition()));
+    }
+    return CompilationResult.lifecycle(rewrittenPhases);
+}
+```
+
+Each phase graph is a distinct desired state — structural invariants enforced by rules must
+hold independently per phase. This also applies to `@GraphInvariant` (#107), which will
+validate each phase graph after rule convergence.
 
 ---
 
@@ -469,6 +553,10 @@ goal method produces its graph — ensuring rules fire on every compile() call.
 - Duplicate identical mutations deduplicated silently
 - Empty rule list → graph returned unchanged
 - Named binding via `of` (non-sequential chaining)
+- @Reaches transitive reachability — all matches bound, not just first
+- Contradictory edge mutations (AddDependency + RemoveDependency same edge) → ConflictingMutationException
+- Rule-induced cycle → GraphRuleCycleException with rule name and cycle path
+- Mutation ordering: AddNode applied before AddDependency referencing it
 
 ### Build extension tests (`annotations/deployment/`)
 
@@ -479,6 +567,7 @@ goal method produces its graph — ensuring rules fire on every compile() call.
 - Standalone @GraphRule class with exact graph match
 - Standalone @GraphRule class with wildcard graph match
 - Interface + standalone rules merged and both fire
+- @GoalMethod returning Lifecycle → rules applied to each phase graph
 
 `GraphRuleValidationTest`:
 - Non-static interface method → error
