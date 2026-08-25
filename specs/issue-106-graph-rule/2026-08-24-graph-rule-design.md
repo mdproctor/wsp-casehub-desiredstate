@@ -114,7 +114,9 @@ public @interface DirectDep {
 }
 ```
 
-Binds a node that is a direct edge neighbor of the previous or named binding.
+Binds nodes that are direct edge neighbors of the previous or named binding. Each
+matching neighbor produces a separate binding tuple — set-producing join, consistent
+with @Match and @Reaches.
 - `direction = DEPENDENCIES` (default): checks `dependenciesOf()` — "what does the binding depend on?"
 - `direction = DEPENDENTS`: checks `dependentsOf()` — "what depends on the binding?"
 - `of`: names a binding by Java parameter name. Empty = sequential chaining (previous parameter).
@@ -351,22 +353,31 @@ public class GraphRuleEngine {
 
 `applyMutations` sorts mutations by type before sequential application:
 
-1. `AddNode` — nodes must exist before edges can reference them
+1. `AddNode` — nodes must exist before updates or edge operations reference them
 2. `UpdateNode` — node exists, update in place
-3. `RemoveDependency` — remove edges before removing their endpoints
-4. `AddDependency` — both endpoints now exist
-5. `RemoveNode` — edges already cleaned up
+3. `RemoveDependency` — explicit edge removals before node deletions
+4. `RemoveNode` — node and all its edges are removed (`withoutNode()` cascades)
+5. `AddDependency` — only between nodes that exist in the final state; edges from
+   deleted nodes are gone, preventing false-positive cycle detection
 
-This mirrors the planner's roots-first addition / leaves-first removal invariant and
-ensures independently-produced rule mutations compose correctly regardless of rule
-iteration order.
+This ordering ensures that `RemoveNode` precedes `AddDependency`. The reverse ordering
+(AddDependency before RemoveNode) creates false-positive cycles: if removing node B
+eliminates the path A→B→C, and adding edge C→A is valid in the final state (no cycle),
+applying AddDependency first would see A→B→C→A as a cycle before B is removed.
 
 ### Cycle pre-validation
 
-`validateNoCycles(graph, mutations)` builds a tentative edge set from the current graph
-plus all `AddDependency` mutations (minus `RemoveDependency` removals) and runs cycle
-detection on the composed result. If a cycle is found, throws `GraphRuleCycleException`
-with the rule name(s) that produced the cycle-creating mutations and the cycle path.
+`validateNoCycles(graph, mutations)` builds a tentative graph state and checks for cycles:
+
+1. Start with the current graph's edge set and node set
+2. Remove edges targeted by `RemoveDependency` mutations
+3. For each `RemoveNode` mutation: remove the node and all edges to/from it (matching
+   `withoutNode()`'s cascade behavior)
+4. Add edges from `AddDependency` mutations (skip if either endpoint was removed)
+5. Run cycle detection on the composed edge set
+
+If a cycle is found, throws `GraphRuleCycleException` with the rule name(s) that produced
+the cycle-creating mutations and the cycle path.
 
 ```java
 public class GraphRuleCycleException extends RuntimeException {
@@ -404,7 +415,8 @@ record ResolvedGraphRule(
    failure — no further parameters are evaluated for a discarded tuple):
    - `@DirectDep`: resolve reference binding (previous param or named via `of`). Query
      `dependenciesOf()` or `dependentsOf()` based on `direction`. Filter by target type.
-     If no match, discard this tuple.
+     Each match extends the current tuple into a separate binding (set-producing join,
+     consistent with @Match). If no match, discard this tuple.
    - `@Reaches`: resolve reference binding. BFS along edges in specified `direction`.
      Collect all nodes matching target type — each match extends the current tuple into
      a separate binding (set-producing join, consistent with @Match). If none found,
@@ -556,7 +568,9 @@ validate each phase graph after rule convergence.
 - @Reaches transitive reachability — all matches bound, not just first
 - Contradictory edge mutations (AddDependency + RemoveDependency same edge) → ConflictingMutationException
 - Rule-induced cycle → GraphRuleCycleException with rule name and cycle path
-- Mutation ordering: AddNode applied before AddDependency referencing it
+- Mutation ordering: AddNode before AddDependency; RemoveNode before AddDependency
+- RemoveNode + AddDependency: no false-positive cycle when removed node was on the path
+- @DirectDep with multiple matching neighbors — all matches bound as separate tuples
 
 ### Build extension tests (`annotations/deployment/`)
 
