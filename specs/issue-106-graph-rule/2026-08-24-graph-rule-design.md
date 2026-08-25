@@ -500,6 +500,7 @@ private Map<String, List<GraphRuleDescriptor>> scanStandaloneGraphRules(IndexVie
 | Return type not `List<GraphMutation>` | `@GraphRule 'ensureValidator' must return List<GraphMutation>` |
 | Imperative param not DesiredStateGraph | `@GraphRule 'rebalance' imperative method first parameter must be DesiredStateGraph` |
 | @NotExists with `of` but no direction | `@NotExists on parameter 'guard' specifies 'of' without explicit direction — DEPENDENCIES and DEPENDENTS have opposite semantics; specify direction` |
+| @DirectDep/@Reaches first param, no `of` | `@DirectDep on parameter 'ingest' uses sequential chaining but has no preceding parameter — use @Match as the first parameter or specify 'of' explicitly` |
 | `of` references unknown parameter name | `@DirectDep 'of' references 'foo' — no parameter named 'foo' in ensureValidator` |
 | @GraphRule on non-public standalone method | `@GraphRule on 'ensureMonitor' in PipelineRules must be public` |
 | Standalone class not instantiable | `@GraphRule class PipelineRules must be concrete with a no-arg constructor` |
@@ -587,6 +588,7 @@ validate each phase graph after rule convergence.
 - Non-static interface method → error
 - Wrong return type → error
 - `of` references non-existent parameter → error
+- @DirectDep/@Reaches as first param with no `of` → error (no predecessor to chain from)
 - @NotExists with `of` but no direction → error
 - Non-public standalone method → error
 - Non-instantiable standalone class → error
