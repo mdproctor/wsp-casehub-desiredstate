@@ -13,9 +13,9 @@ flyway-next-v: none
 
 ## Queue
 - [ ] casehubio/casehub-desiredstate#106 — Issue #106 ← active
-  - [ ] Batch 1: Foundation
-    - [ ] Task 1: Annotations + Direction + IR records
-    - [ ] Task 2: GraphDescriptor extension + targetNodeId + exceptions
+  - [x] Batch 1: Foundation
+    - [x] Task 1: Annotations + Direction + IR records
+    - [x] Task 2: GraphDescriptor extension + targetNodeId + exceptions
   - [ ] Batch 2: Engine
     - [ ] Task 3: Engine core — imperative + fixed-point + conflict + cycle
     - [ ] Task 4: Parameterized pattern matching
