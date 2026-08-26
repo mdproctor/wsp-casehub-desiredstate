@@ -2,8 +2,8 @@
 
 ## State
 branch: issue-106-graph-rule
-state: scaffolded
-project-sha: 7d37385dd38daaa9fd2ead82de1733cf8422ca7b
+state: active
+project-sha: 1a1574f98ce161537eaccba8474c2ede840ab626
 date: 2026-08-24
 issue-repo: casehubio/casehub-desiredstate
 covers: 106
@@ -12,12 +12,12 @@ design-section-hashes: 979de182:## Artifact Schema|4d2cc5ab:## §1 Introduction 
 flyway-next-v: none
 
 ## Queue
-- [ ] casehubio/casehub-desiredstate#106 — Issue #106 ← active
+- [ ] casehubio/casehub-desiredstate#106 — Issue #106 <- active
   - [x] Batch 1: Foundation
     - [x] Task 1: Annotations + Direction + IR records
     - [x] Task 2: GraphDescriptor extension + targetNodeId + exceptions
-  - [ ] Batch 2: Engine
-    - [ ] Task 3: Engine core — imperative + fixed-point + conflict + cycle
-    - [ ] Task 4: Parameterized pattern matching
-  - [ ] Batch 3: Integration
-    - [ ] Task 5: Processor + validation + recorder + example
+  - [x] Batch 2: Engine
+    - [x] Task 3: Engine core - imperative + fixed-point + conflict + cycle
+    - [x] Task 4: Parameterized pattern matching
+  - [x] Batch 3: Integration
+    - [x] Task 5: Processor + validation + recorder + example
