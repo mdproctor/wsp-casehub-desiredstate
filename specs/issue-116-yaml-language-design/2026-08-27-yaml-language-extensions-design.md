@@ -49,11 +49,19 @@ that make CaseHub desired-state worth choosing over Terraform, Helm, or Ansible.
 All `${}` references use explicit prefixes. No bare variable names. This prevents
 collision between variables, pattern bindings, fault context, and iteration variables.
 
+**Breaking change from #117 YAML surface.** The existing `medallion-pipeline.yaml`
+uses bare variable names (`${source_uri}`). This spec requires prefixed names
+(`${var.source_uri}`). Existing YAML files must be updated. The `VariableResolver`
+pattern changes from flat key lookup to prefix-dispatched resolution. This break
+is intentional — bare names collide with `${match.*}`, `${each.*}`, and `${fault.*}`
+namespaces. The migration is mechanical: prepend `var.` to every existing `${}`
+reference.
+
 | Prefix | Scope | Available in | Examples |
 |--------|-------|-------------|----------|
 | `${var.name}` | Variables block, module parameters, Config fallthrough | Everywhere | `${var.source_uri}`, `${var.batch_size}` |
-| `${each.name}` | forEach iteration variable | forEach node specs, dependsOn | `${each.region}` |
-| `${match.binding.prop}` | Pattern bindings | Rule actions, invariant messages | `${match.sink.id}`, `${match.sink.type}` |
+| `${each.name}` | forEach iteration variable | forEach node specs, dependsOn, when: (within forEach) | `${each.region}` |
+| `${match.binding.prop}` | Pattern bindings | Rule actions (including spec values), invariant messages | `${match.sink.id}`, `${match.sink.type}` |
 | `${fault.prop}` | Fault event context | Fault policy tier specs | `${fault.nodeId}`, `${fault.detail}`, `${fault.type}` |
 
 **Accessible properties on `${match.binding}`:**
@@ -72,8 +80,47 @@ path Helm's Go templates took.
 2. Inline `variables:` block
 3. MicroProfile Config (`VariableResolver` existing fallthrough)
 
-Module parameters shadow variables within module scope. The `VariableResolver`
-gains a scope stack to support this (currently flat).
+**Resolution architecture:**
+
+The four prefixes are resolved by different components at different points
+in the evaluation pipeline — this is not a scope stack but a delegation
+architecture with prefix-based dispatch:
+
+| Prefix | Resolver | Resolution point | Component |
+|--------|----------|------------------|-----------|
+| `${var.*}` | `VariableResolver` | Compile time (step 7) | `YamlGraphRecorder` |
+| `${each.*}` | `VariableResolver` | forEach expansion (step 8) | `YamlGraphRecorder` |
+| `${match.*}` | `DeclarativeRuleAdapter` | Rule evaluation (step 12) | `GraphRuleEngine` |
+| `${fault.*}` | Template factory closure | Fault time (runtime) | `ThresholdFaultPolicy` |
+
+`VariableResolver` gains prefix routing and a module scope stack:
+- Strips the `var.` or `each.` prefix before lookup
+- `${var.*}` → module parameters → inline variables → MicroProfile Config
+- `${each.*}` → forEach iteration context (bound during expansion)
+- Rejects `${match.*}` and `${fault.*}` at compile time with a clear error:
+  these prefixes are placeholders validated syntactically but resolved later
+  by their respective components
+- Unrecognized prefixes are build-time errors
+
+`DeclarativeRuleAdapter` resolves `${match.*}` references against pattern
+bindings at rule evaluation time. It receives the binding map from
+`PatternEvaluator` and performs string interpolation on action templates.
+
+The fault policy template factory resolves `${fault.*}` references against
+`FaultEvent` properties at fault time. The factory lambda captures the
+template map and resolves at invocation (same pattern as §8.5).
+
+**Breaking change:** The existing `VariableResolver` uses bare `${name}`
+references (e.g., `${source_uri}` in the pipeline-yaml example). This spec
+mandates `${var.name}` prefixed references. All existing YAML graph files
+must be updated. This is a clean break — no deprecation period, no backward
+compatibility shim. The platform has no external consumers; the migration is
+mechanical (add `var.` prefix to every `${...}` reference in YAML files).
+The `VariableResolver` regex changes from `\$\{([^}]+)}` to prefix-aware
+dispatch: `var.` → variable lookup, `each.` → forEach scope, `match.` →
+rule bindings, `fault.` → fault context. Bare references produce
+`UnresolvedVariableException` with guidance: "Use `${var.name}` instead
+of `${name}`."
 
 ## 5. Node ID Conventions
 
@@ -149,14 +196,52 @@ faultPolicy:
 - `ignoreTypes` is auto-extended with each tier's output node type (existing
   `ThresholdFaultPolicy` behavior).
 
+**Template deserialization safety:**
+
+The template `ReviewSpecFactory` lambda must catch deserialization failures
+and produce a clear error rather than propagating an uncaught exception into
+the fault feedback loop. Specifically:
+
+- Catch `IllegalArgumentException` and Jackson `MappingException` from
+  `convertValue`. Wrap with context: template node type, fault event details,
+  resolved template values, and target spec class name.
+- On failure: log the error at WARN and return `List.of()` — the tier is
+  skipped for this fault event, allowing fallthrough to higher tiers or
+  natural fault re-evaluation on the next cycle. The original fault is NOT
+  swallowed — it remains in the reconciliation loop's fault tracking.
+- All `${fault.*}` values are guaranteed to be `String` type. The template
+  resolver never produces non-string values from fault context.
+- The `ObjectMapper` used for template spec deserialization is a dedicated
+  instance with scalar coercion explicitly enabled (`CoercionConfig` for
+  String-to-number and String-to-boolean). This mapper is captured in the
+  `ReviewSpecFactory` lambda closure — it is NOT the application's default
+  `ObjectMapper`.
+
+**FaultCountStore injection:**
+
+YAML-originated fault policies inherit the CDI-provided `FaultCountStore`
+bean, NOT the inline `InMemoryFaultCountStore` default. Both the YAML
+recorder and the annotation recorder pass the CDI-resolved `FaultCountStore`
+to `ThresholdFaultPolicy.Builder.faultCountStore()`. This ensures:
+
+- If `JpaFaultCountStore` is on the classpath (displaces `DefaultFaultCountStore`
+  via `@DefaultBean`), both YAML and annotation policies use durable storage.
+- If no custom store is provided, both surfaces use the CDI `DefaultFaultCountStore`
+  (`InMemoryFaultCountStore` subclass) — identical behavior, no silent divergence.
+- The annotation recorder's `@Customize` escape hatch can still override the
+  store per-policy if needed.
+
 **Architecture changes:**
 
 - `YamlGraphRecorder`: accept `List<FaultPolicyDescriptor>` and register
   `ThresholdFaultPolicy` beans with template-based `ReviewSpecFactory` lambdas.
-  The lambda captures `NodeSpecRegistry` and `ObjectMapper` in its closure.
+  The lambda captures `NodeSpecRegistry`, a dedicated coercion-enabled
+  `ObjectMapper`, and the CDI `FaultCountStore` in its closure.
 - `YamlDesiredStateProcessor`: parse `faultPolicy:` YAML, build descriptors,
   validate tier types exist in the registry.
 - YAML model: add `List<YamlFaultPolicy>` to `YamlGraph`.
+- `DesiredStateGraphRecorder.createFaultPolicy()`: inject CDI `FaultCountStore`
+  into the builder (currently defaults to inline `InMemoryFaultCountStore`).
 
 ---
 
@@ -252,7 +337,11 @@ nodes:
 **Semantics:**
 
 - `when:` takes a `${var.*}` reference that resolves to a boolean string.
-  Case-insensitive: `"true"` → included, anything else → excluded.
+  Truthy values (case-insensitive): `true`, `yes`, `on`, `y`, `1`.
+  Falsy values (case-insensitive): `false`, `no`, `off`, `n`, `0`.
+  Any other value is a **build-time error** — not silently treated as false.
+  This matches YAML's own boolean vocabulary, so `monitoring_enabled: yes`
+  in a YAML variables block works as operators expect.
 - Evaluation at `GoalCompiler.compile()` time, after variable resolution.
 - When a conditional node is excluded, its outgoing and incoming dependency
   edges are removed from the graph.
@@ -321,13 +410,31 @@ rules:
 |----------|--------------|------------|
 | `addNode:` | `AddNode` | `id`, `type`, `spec`, optional `humanGating` |
 | `removeNode:` | `RemoveNode` | `id` |
-| `updateNode:` | `UpdateNode` | `id`, partial spec map (merged with existing) |
+| `updateNode:` | `UpdateNode` | `id`, `type`, complete `spec` (replaces existing) |
 | `addDependency:` | `AddDependency` | `from`, `to` |
 | `removeDependency:` | `RemoveDependency` | `from`, `to` |
 
 Action parameters support `${match.*}` interpolation for node ID and type
 references. Spec values in `addNode:` and `updateNode:` support `${var.*}`
 interpolation for configuration.
+
+`updateNode:` requires a **complete** spec — it replaces the existing node
+entirely, matching the runtime `GraphMutation.UpdateNode(NodeId, DesiredNode)`
+semantics. There is no partial merge. Rules that need to read the current
+node's spec and modify a single field require Java `@GraphRule` — this is
+a deliberate boundary. Partial merge semantics in a fixed-point loop create
+non-deterministic convergence: if multiple rules modify the same node, the
+merge result depends on evaluation order and changes between iterations.
+Complete replacement is idempotent and order-independent.
+
+**Spec deserialization:** Rule action spec blocks (`addNode:` and
+`updateNode:` `spec:` values) are deserialized using a dedicated
+`ObjectMapper` with scalar coercion explicitly enabled (`CoercionConfig`
+for String-to-number and String-to-boolean). After `${var.*}` interpolation,
+all substituted values are strings; the dedicated mapper ensures `"10"` →
+`int 10` and `"true"` → `boolean true` regardless of the application's
+Jackson configuration. YAML-native scalars (`threshold: 5`) pass through
+as their native types — only `${}`-interpolated values require coercion.
 
 **Semantics:**
 
@@ -373,6 +480,16 @@ against annotation graphs. Fix: a new build step
 `GraphInvariantDescriptor`s. It produces `AdditionalRulesBuildItem` entries
 consumed by the YAML recorder when wrapping its `GoalCompiler`.
 
+**Rule ordering:** When YAML declarative rules and cross-surface annotation
+rules are combined, the ordering is: YAML declarative rules first, then
+cross-surface annotation rules — matching the annotation processor's
+convention where graph-local rules precede standalone rules
+(`DesiredStateAnnotationsProcessor` line ~120). The `GraphRuleEngine`
+fixed-point loop ensures that the final converged graph is the same
+regardless of evaluation order for well-formed rules (monotonic, no mutual
+conflicts). Ordering affects convergence speed, not correctness. If rules
+truly conflict, `ConflictingMutationException` is thrown deterministically.
+
 ---
 
 #### 6.5 Lifecycle Phases
@@ -402,11 +519,6 @@ lifecycle:
     - id: application
       completionCondition: allPresent
       nodes:
-        database:
-          type: db
-          spec:
-            engine: postgres
-            version: "15"
         api-server:
           type: app
           dependsOn: [database]
@@ -416,10 +528,6 @@ lifecycle:
     - id: observability
       completionCondition: never
       nodes:
-        api-server:
-          type: app
-          spec:
-            image: "api:latest"
         monitor:
           type: monitor
           dependsOn: [api-server]
@@ -427,27 +535,35 @@ lifecycle:
             target: api-server
 ```
 
-**Cross-phase node references (adversarial fix):**
+In this example, `database` and `cache` are declared in `infrastructure`.
+The `application` phase references `database` in `dependsOn` without
+re-declaring it — `database` is implicitly carried forward. Similarly,
+`observability` references `api-server` without re-declaration.
+
+**Cross-phase node references — implicit carry-forward:**
 
 Each phase produces a **separate** `DesiredStateGraph`. The runtime reconciles
-one phase at a time. Nodes from earlier phases are NOT automatically visible in
-later phases.
+one phase at a time. Nodes from earlier phases are **implicitly carried forward**
+into later phases — they are already present in actual state (the earlier phase
+reconciled them) and later phases can reference them in `dependsOn` without
+re-declaration.
 
-Cross-phase dependencies require **explicit re-declaration** of the depended-on
-node in the later phase. In the example above, `database` is re-declared in
-the `application` phase so that `api-server` can depend on it. `api-server` is
-re-declared in the `observability` phase so that `monitor` can depend on it.
+At compile time, the build step injects carried-forward nodes from all earlier
+phases into each later phase's `DesiredStateGraph`. The planner in the later
+phase sees these as already PRESENT and skips them — no redundant reconciliation.
+The only reason they appear in the later phase's graph is so that `dependsOn`
+references resolve correctly.
 
-Build-time validation: if a `dependsOn` references a node ID that doesn't exist
-in the current phase's node set, and that ID exists in an earlier phase → error
-with guidance:
+**Explicit re-declaration for overrides:** An operator can re-declare a node
+from an earlier phase in a later phase to override its spec. The re-declared
+node's type must match; the spec is the override value. This is for cases where
+a node's configuration evolves between phases (e.g., a database that gets
+different connection pool settings in the application phase).
 
-> "Node 'api-server' in phase 'observability' depends on 'database' which is
-> declared in phase 'infrastructure' but not in 'observability'. Re-declare
-> 'database' in the 'observability' phase to make it available."
-
-Re-declared nodes must have identical type and spec across phases. Build-time
-validation enforces this — a re-declared node with a different spec is an error.
+**Cross-phase forEach:** forEach-generated nodes from earlier phases are
+carried forward as their expanded concrete nodes. A later phase that needs
+to depend on forEach-generated nodes from an earlier phase references the
+template ID in `dependsOn` — alignment rules (§6.6) apply across phases.
 
 **Completion condition vocabulary:**
 
@@ -456,6 +572,13 @@ validation enforces this — a re-declared node with a different spec is an erro
 | `allPresent` | `CompletionCondition.allPresent()` | All nodes in the phase are PRESENT in actual state |
 | `never` | `CompletionCondition.never()` | Phase never completes — steady-state reconciliation |
 | `{ bean: "beanName" }` | CDI lookup | Named `CompletionCondition` bean — Java escape hatch |
+
+CDI bean lookup for `completionCondition: { bean: "name" }` must happen at
+Quarkus **build time**. The `YamlDesiredStateProcessor` validates that the
+named bean exists in the Jandex index and implements `CompletionCondition`.
+Build-time failure is the only acceptable mode — a typo in a bean name must
+fail the build, not produce a runtime `NoSuchBeanException` or a hung
+lifecycle during reconciliation.
 
 The last phase should use `never` for steady-state operations or `allPresent`
 for finite lifecycles. Build-time warning if the last phase uses `allPresent`
@@ -476,7 +599,17 @@ runtime contract: each phase is reconciled independently.
 **When `lifecycle:` is present:** The top-level `nodes:` key is forbidden.
 Nodes live inside phases. The YAML produces `CompilationResult.Lifecycle`
 instead of `CompilationResult.single()`. All other features (`when:`, `forEach:`,
-rules, invariants, fault policies) work within each phase independently.
+rules, invariants) work within each phase independently — each phase's graph
+is compiled and evaluated through the rule/invariant engines separately.
+
+Fault policies are `@ApplicationScoped` CDI beans — they are NOT scoped per-phase.
+However, fault policy isolation works in practice because each phase reconciles
+independently: Phase 1's reconciliation cycle produces fault events only for
+Phase 1's nodes, and Phase 2's cycle produces events only for Phase 2's nodes.
+The `nodeTypes`/`faultTypes` filtering in `ThresholdFaultPolicy` provides
+content-based scoping. Carried-forward nodes that appear in multiple phases may
+trigger the same fault policy in each phase's reconciliation cycle — this is
+correct behavior (the carried-forward node is part of that phase's desired graph).
 
 ---
 
@@ -508,30 +641,67 @@ nodes:
 
 **ID derivation:** `${templateId}.${value}` using the reserved `.` separator.
 
-**Aligned iteration (cross-forEach dependencies):**
+**Expansion limit:** forEach expansion is capped at a configurable maximum
+per template (default: 1,000). If the `in` array resolves to more entries
+than the limit, `GoalCompiler.compile()` fails with:
 
-When two forEach nodes share the same `as` variable name and identical `in`
-values, dependencies between them are aligned per-iteration:
+> "forEach template 'regional-source' would expand to 5,000 nodes (limit:
+> 1,000). Configure `casehub.desiredstate.foreach.max-expansion` to raise
+> the limit, or reduce the input array."
+
+The cap prevents OOM during graph compilation and protects against
+`PatternMatchingSupport.crossProduct()` combinatorial explosion in
+downstream rule evaluation. The limit is configurable via MicroProfile
+Config: `casehub.desiredstate.foreach.max-expansion=2000`.
+
+**Named iteration groups (aligned iteration):**
+
+When multiple forEach nodes must iterate together (aligned per-value), they
+reference a named iteration group instead of duplicating `as`/`in` inline.
+This makes alignment structural — both nodes reference the same group, so
+values cannot diverge and renaming is atomic.
 
 ```yaml
+iterations:
+  regional:
+    as: region
+    in: ["us-east", "eu-west"]
+
 nodes:
   regional-source:
     type: data-source
-    forEach: { as: region, in: ["us-east", "eu-west"] }
+    forEach: regional
     spec: { uri: "s3://${each.region}/data.csv" }
 
   regional-ingest:
     type: ingestion
-    forEach: { as: region, in: ["us-east", "eu-west"] }
+    forEach: regional
     dependsOn: [regional-source]
     spec: { region: "${each.region}" }
 ```
 
 → `regional-ingest.us-east` depends on `regional-source.us-east` (aligned).
 
+**Inline forEach** remains supported for standalone iteration (no alignment):
+
+```yaml
+nodes:
+  worker:
+    type: processor
+    forEach: { as: idx, in: ["1", "2", "3"] }
+    spec: { instance: "${each.idx}" }
+```
+
+Inline forEach creates an anonymous iteration group — two nodes with inline
+forEach are never aligned, even if they happen to share the same `as`/`in`.
+Alignment requires a named group reference. This removes the fragile naming
+convention (same `as` + identical `in`) in favor of explicit structural linkage.
+
 If a forEach node depends on a non-forEach node, each copy depends on the
-same fixed node. If the `in` values differ between two forEach nodes that
-reference each other, build-time error.
+same fixed node. If two forEach nodes reference **different** named groups
+and depend on each other → build-time error. If an inline forEach node
+depends on a named-group forEach node (or vice versa) → build-time error
+with guidance to use the same named group.
 
 **Variable-sourced values:**
 
@@ -547,6 +717,22 @@ nodes:
 
 Resolves to a JSON array string, parsed into a list. Allows
 environment-specific configuration via MicroProfile Config.
+
+**JSON parse error handling:** If the resolved value is not valid JSON or
+is not a JSON array of strings, `GoalCompiler.compile()` fails with a
+contextual error:
+
+> "forEach template 'regional-source': variable '${var.regions}' resolved
+> to '["us-east", "eu-west"' which is not a valid JSON array. Expected a
+> JSON array of strings like `["a", "b"]`."
+
+Specific validations:
+- Non-JSON values (e.g., `us-east,eu-west`) → error with JSON format guidance
+- Empty string `""` → error: "Use `[]` for an empty array, not an empty string"
+- JSON array of non-strings (e.g., `[1, 2, 3]`) → error: "forEach values
+  must be strings"
+- Valid JSON non-array (e.g., `{"key": "value"}`) → error: "Expected a JSON
+  array, got object"
 
 **Edge cases (adversarial fixes):**
 
@@ -621,6 +807,19 @@ imports:
 - `pipe-monitor.monitor` depends on `warehouse-sink`
 - `pipe-monitor.alerter` depends on `pipe-monitor.monitor`
 
+**Parameter resolution order:** Parameter values specified in the `parameters:`
+block of an import are resolved in the **importing context** BEFORE the module
+scope is pushed. This means `${var.target}` in a parameter value resolves
+against the importing graph's variables, not the module's parameter scope.
+This prevents circular shadowing: a module parameter named `target` does not
+shadow the importing variable `target` during its own value resolution.
+
+The sequence:
+1. Resolve parameter values in the importing scope (variables + Config)
+2. Push module scope: parameters shadow variables within the module
+3. Resolve `${var.*}` inside the module against the parameter scope first,
+   then fall through to importing variables, then Config
+
 **Cross-boundary dependencies:** Module parameters carry string values. A
 parameter value that matches a node ID in the importing graph creates a
 dependency naturally through `dependsOn: ["${var.watched_node_id}"]`. The
@@ -644,6 +843,45 @@ IDs to B and C as string parameters.
 
 **Conditional imports:** `when:` on an import excludes all module nodes when
 the condition is false (same semantics as node-level `when:`).
+
+**Module-scoped rules and invariants:**
+
+Modules can carry their own `rules:` and `invariants:` sections:
+
+```yaml
+module:
+  name: monitoring
+  parameters:
+    watched_node_id:
+      type: string
+      required: true
+
+nodes:
+  monitor:
+    type: monitor
+    dependsOn: ["${var.watched_node_id}"]
+    spec:
+      target: "${var.watched_node_id}"
+
+invariants:
+  monitor-must-have-dependency:
+    match:
+      mon: { type: monitor }
+    directDep:
+      target: { type: "*", of: mon, direction: dependencies }
+```
+
+Module rules and invariants are promoted to the top-level rule/invariant lists
+after module expansion and alias prefixing. They fire against the **full graph**,
+not just the module's own nodes. Pattern-based matching provides natural scoping:
+a rule matching `type: monitor` only fires against monitor nodes, which are
+typically the module's own nodes. If a module rule needs to match broader node
+types, it has full graph visibility — this is intentional, as structural rules
+like "every node this module monitors must have a health check" require
+cross-boundary access.
+
+Module rules participate in the same fixed-point loop and invariant validation
+as top-level rules.
 
 **Module discovery:** Classpath scan at `META-INF/desiredstate/modules/`.
 Modules can come from library JARs — a monitoring module published as a Maven
@@ -706,41 +944,137 @@ produces its own `DesiredStateGraph`.
 `YamlGraph` gains: `faultPolicy`, `rules`, `invariants`, `lifecycle`, `imports`.
 `YamlNode` gains: `when`, `forEach`.
 
-### 8.2 GraphDescriptor — No Changes
+### 8.2 GraphDescriptor — Surface-Agnostic Descriptors
 
-`GraphDescriptor` is not modified. It remains the annotation-centric IR.
-YAML-specific metadata (forEach, when, module expansion, declarative rules)
-is carried separately in a `YamlExpansionContext` passed from the YAML
-deployment processor to the YAML recorder. This keeps the shared IR clean
-and avoids breaking the annotation processor.
+`GraphDescriptor` evolves from annotation-centric to surface-agnostic IR.
+The descriptor types for rules and invariants become sealed interfaces
+supporting both reflective (annotation) and declarative (YAML/TS) variants:
 
-The `YamlExpansionContext` carries:
-- `Map<String, YamlForEach>` — forEach metadata keyed by node ID
+```
+GraphRuleDescriptor (record) → GraphRuleDescriptor (sealed interface)
+  ├── ReflectiveRuleDescriptor(methodName, imperative, patterns,
+  │                            sourceClassName)
+  └── DeclarativeRuleDescriptor(name, graphPatterns, patterns, actions)
+
+GraphInvariantDescriptor (record) → GraphInvariantDescriptor (sealed interface)
+  ├── ReflectiveInvariantDescriptor(methodName, imperative, patterns,
+  │                                 sourceClassName)
+  └── DeclarativeInvariantDescriptor(name, graphPatterns, patterns)
+```
+
+Both variants carry `String[] graphPatterns` for graph scoping. For
+annotation rules defined within a `@DesiredState` class, `graphPatterns`
+is empty (meaning "this graph only" — scoped by the build step that
+populates `GraphDescriptor`). For standalone `@GraphRule` classes and
+YAML declarative rules, `graphPatterns` carries the include/exclude
+patterns. This eliminates the asymmetry where annotation rules carried
+graph scoping externally (`List<Entry<String[], List<GraphRuleDescriptor>>>`)
+while declarative rules carried it internally.
+
+`GraphDescriptor.graphRules()` and `graphInvariants()` now carry both
+reflective and declarative variants via the sealed interface. Both surfaces
+populate the same IR. The annotation processor populates
+`ReflectiveRuleDescriptor`; the YAML processor populates
+`DeclarativeRuleDescriptor`. Downstream consumers (`DesiredStateGraphRecorder`,
+`YamlGraphRecorder`) work with the sealed interface.
+
+`FaultPolicyDescriptor` is already surface-agnostic — it carries the same
+data for both annotations and YAML.
+
+**ExpansionContext** (narrowed from `YamlExpansionContext`):
+
+Expansion-time metadata that doesn't belong in `GraphDescriptor`:
+- `Map<String, ForEachDescriptor>` — forEach metadata keyed by node ID
 - `Map<String, String>` — when conditions keyed by node ID
-- `List<DeclarativeRuleDescriptor>` — YAML-originated rules
-- `List<DeclarativeInvariantDescriptor>` — YAML-originated invariants
-- `List<FaultPolicyDescriptor>` — YAML-originated fault policies
+- `List<ModuleImportDescriptor>` — module imports
+
+These are compile-time expansion directives resolved during
+`GoalCompiler.compile()` — they don't exist at runtime. Named
+`ExpansionContext` (not `YamlExpansionContext`) because the TS DSL
+may also support `forEach` and `when:`. Rules, invariants, and fault
+policies live in `GraphDescriptor` — not in the expansion context.
 
 ### 8.3 Engine Refactoring
 
-Both `GraphRuleEngine` and `GraphInvariantEngine` refactor their resolved
-record types into sealed interfaces:
+**Three-variant sealed hierarchy:**
+
+The `boolean imperative` field on `ResolvedGraphRule` conflates two
+structurally different evaluation strategies (imperative: whole graph →
+mutations; parameterized: pattern bindings → method invocation). The
+declarative variant adds a third. Making the dispatch explicit in the
+type system:
 
 ```
-ResolvedGraphRule (record) → ResolvedRule (sealed interface)
-  ├── ReflectiveRule(Method, Object, List<PatternParameterDescriptor>)
-  └── DeclarativeRule(String name, List<PatternParameterDescriptor>,
-                      List<ActionDescriptor>, Map<String, String> bindingNames)
+ResolvedRule (sealed interface)
+  ├── ImperativeRule(String name, Method method, Object instance)
+  ├── ParameterizedReflectiveRule(String name, Method method, Object instance,
+  │                               List<PatternParameterDescriptor> patterns)
+  └── DeclarativeRule(String name, List<PatternParameterDescriptor> patterns,
+                      List<ActionDescriptor> actions)
 ```
 
-The key extraction: `getParameterNames()` moves from
-`PatternMatchingSupport.getParameterNames(Method)` to a method on the
-interface — reflective rules derive names from `Method.getParameters()`,
-declarative rules carry names from YAML keys.
+`ImperativeRule` takes the whole `DesiredStateGraph` and returns
+`List<GraphMutation>`. `ParameterizedReflectiveRule` does pattern matching
+and calls a Java method with bindings. `DeclarativeRule` does pattern
+matching and evaluates action templates.
 
-The `expandChain`/`expandBindings` methods are unchanged — they work with
-`PatternParameterDescriptor` and binding maps, not Method objects. Only the
-"invoke action" step is polymorphic.
+Same three-variant structure for invariants:
+```
+ResolvedInvariant (sealed interface)
+  ├── ImperativeInvariant(String name, Method method, Object instance)
+  ├── ParameterizedReflectiveInvariant(String name, Method method, Object instance,
+  │                                    List<PatternParameterDescriptor> patterns)
+  └── DeclarativeInvariant(String name, List<PatternParameterDescriptor> patterns)
+```
+
+**PatternEvaluator extraction (#114):**
+
+`GraphRuleEngine.expandChain` (~30 lines) and `GraphInvariantEngine.expandChain`
+(~35 lines) are structurally identical — same cross-product expansion, same
+recursive binding resolution, same pattern dispatch (DIRECT_DEP, REACHES,
+NOT_EXISTS). The only difference is the terminal action.
+
+Extract a shared `PatternEvaluator` that takes:
+- `DesiredStateGraph` — the graph to match against
+- `List<PatternParameterDescriptor>` — the pattern chain
+- `String[]` binding names — from `getParameterNames()` on the sealed interface
+
+And returns `List<Map<String, DesiredNode>>` — all valid binding maps. The
+terminal action (rule: produce mutations; invariant: validate) is the caller's
+responsibility. This eliminates the ~80-line parallel surgery and unifies
+pattern evaluation into one well-tested component.
+
+This aligns with issue #114 (shared pattern matching infrastructure) — the
+`PatternEvaluator` is the next step after the existing `PatternMatchingSupport`
+utility methods.
+
+**Binding name extraction:** `getParameterNames()` moves from
+`PatternMatchingSupport.getParameterNames(Method)` to a method on the sealed
+interface — `ImperativeRule` returns empty (no bindings),
+`ParameterizedReflectiveRule` derives names from `Method.getParameters()`,
+`DeclarativeRule` carries names from YAML keys.
+
+**AddNode construction pipeline:**
+
+`DeclarativeRule`'s action evaluation requires runtime access to
+`NodeSpecRegistry` and `ObjectMapper` for constructing `DesiredNode` from
+raw YAML spec maps. These dependencies are captured in the
+`DeclarativeRuleAdapter`'s closure — same pattern as the fault policy
+template factory (§8.5):
+
+1. `YamlGraphRecorder` creates `DeclarativeRuleAdapter` instances, capturing
+   `NodeSpecRegistry` and a coercion-enabled `ObjectMapper` in the closure
+2. For `addNode:` actions: resolve `${match.*}` templates → look up spec
+   class from `NodeSpecRegistry` using the `type:` field → `ObjectMapper
+   .convertValue()` into the typed `NodeSpec` → construct `DesiredNode`
+3. For `updateNode:` actions: same pipeline, produces
+   `GraphMutation.UpdateNode`
+4. For `removeNode:`/`addDependency:`/`removeDependency:`: string
+   interpolation only — no spec construction needed
+
+The `DeclarativeRuleAdapter` lives in the YAML recorder layer (not in the
+domain-agnostic `GraphRuleEngine`), preserving the engine's independence
+from YAML-specific services.
 
 ### 8.4 Cross-Surface Rule Resolution
 
