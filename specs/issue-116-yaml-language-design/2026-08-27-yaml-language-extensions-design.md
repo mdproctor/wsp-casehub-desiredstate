@@ -303,6 +303,14 @@ invariants:
 
 Each entry: `name: { type: <nodeType>, of: <bindingRef>, direction: dependencies|dependents }`
 
+- `type:` specifies the node type to match. Use `"*"` as a wildcard to match
+  **any** node type. This is useful for structural assertions that are
+  type-agnostic (e.g., "every monitor must have at least one dependency,
+  regardless of what it depends on"). The wildcard is supported in all
+  pattern kinds: `match:`, `directDep:`, `reaches:`, `notExists:`.
+  `PatternMatchingSupport` methods (`findDirectNeighbors`, `findReachable`,
+  `existsRelational`, `existsGlobal`) must skip the type filter when
+  `"*".equals(p.nodeType())`.
 - `of:` references a previously bound name. Required for all patterns except
   the first `match:` entry.
 - `direction:` defaults to `dependencies`.
@@ -999,8 +1007,13 @@ BUILD TIME                                COMPILE TIME (GoalCompiler.compile())
 Rules and invariants see the fully expanded, post-forEach/when graph. They
 never deal with templates or conditions.
 
-For lifecycle phases, steps 7–14 run independently per phase. Each phase
-produces its own `DesiredStateGraph`.
+For lifecycle phases, steps 7–14 run **sequentially in declaration order** —
+each phase's compilation output (including rule-generated nodes from step 12)
+feeds the next phase's carry-forward injection. "Independently" means each
+phase has its own expansion/rule/invariant pipeline — not that phases can be
+compiled in parallel. Phase 2 cannot begin compilation until Phase 1's fully
+expanded graph (post-rules, post-invariants) is available, because carry-forward
+injects Phase 1's output nodes into Phase 2's input graph.
 
 ## 8. Architecture Changes
 
@@ -1011,16 +1024,19 @@ produces its own `DesiredStateGraph`.
 | `YamlFaultPolicy` | faultTypes, nodeTypes, ignoreTypes, namespace, tiers | Fault policy declaration |
 | `YamlFaultTier` | threshold, reviewNode (type, spec, humanGating) | Escalation tier |
 | `YamlRule` | name, graph, patterns, actions | Declarative graph rule |
-| `YamlInvariant` | name, graph, patterns | Declarative invariant |
+| `YamlInvariant` | name, graph, patterns, message (optional) | Declarative invariant |
 | `YamlPattern` | type, of, direction, kind (match/directDep/reaches/notExists) | Pattern entry |
 | `YamlAction` | kind (addNode/removeNode/etc), parameters | Rule action |
 | `YamlLifecycle` | phases (list) | Lifecycle structure |
 | `YamlPhase` | id, completionCondition, nodes | Lifecycle phase |
-| `YamlForEach` | as, in | forEach metadata on nodes |
+| `YamlForEach` | as, in | forEach metadata on nodes (inline) |
+| `YamlIterationGroup` | name, as, in | Named iteration group (top-level `iterations:` key) |
 | `YamlImport` | module, as, when, parameters | Module import |
 
-`YamlGraph` gains: `faultPolicy`, `rules`, `invariants`, `lifecycle`, `imports`.
-`YamlNode` gains: `when`, `forEach`.
+`YamlGraph` gains: `faultPolicy`, `rules`, `invariants`, `lifecycle`, `imports`,
+`iterations`.
+`YamlNode` gains: `when`, `forEach` (string reference to named group, or inline
+`YamlForEach` map).
 
 ### 8.2 GraphDescriptor — Surface-Agnostic Descriptors
 
@@ -1194,8 +1210,9 @@ see the expanded graph before it hits the reconciliation loop.
 
 Proposed: a Quarkus dev-mode endpoint and/or Maven goal that renders the
 fully expanded graph (post-module, post-forEach, post-when, post-rules,
-post-invariants) as YAML or JSON. Implementation is a separate issue — it
-depends on the features being built first.
+post-invariants) as YAML or JSON. Implementation will be tracked as a
+dedicated GitHub issue once the features in this spec are built — dry-run
+depends on the expansion pipeline being complete.
 
 ### 9.2 Error Messages
 
@@ -1280,5 +1297,9 @@ instead of template evaluators. The sealed interface hierarchy works regardless.
 - #116 — operator-first declaration language vision
 - #117 — YAML surface foundation (closed)
 - #114 — shared pattern matching infrastructure (open)
+- #108 — referenced by ARC42STORIES C10 (related epic scope — not directly
+  addressed by this spec; requirements to be triaged separately)
+- #109 — referenced by ARC42STORIES C10 (related epic scope — not directly
+  addressed by this spec; requirements to be triaged separately)
 - #119 — YAML rules and invariants — Drools backend (open, decision escalated)
 - #121 — YAML lifecycle hooks — imperative steps within transitions (open, deferred)
