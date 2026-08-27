@@ -642,9 +642,11 @@ a node's configuration evolves between phases (e.g., a database that gets
 different connection pool settings in the application phase).
 
 **Cross-phase forEach:** forEach-generated nodes from earlier phases are
-carried forward as their expanded concrete nodes. A later phase that needs
-to depend on forEach-generated nodes from an earlier phase references the
-template ID in `dependsOn` — alignment rules (§6.6) apply across phases.
+carried forward as their expanded concrete nodes. A later phase's forEach
+node using the same named iteration group can depend on an earlier phase's
+forEach-generated nodes — alignment rules (§6.6) apply across phases.
+Non-forEach nodes cannot reference a forEach template ID even across
+phases (same build-time error as §6.6).
 
 Named iteration groups (§6.6) are declared at the top level (`iterations:`
 alongside `lifecycle:`), shared across all phases. A `forEach: regional`
@@ -1061,7 +1063,7 @@ injects Phase 1's output nodes into Phase 2's input graph.
 | `YamlPattern` | type, of, direction, kind (match/directDep/reaches/notExists) | Pattern entry |
 | `YamlAction` | kind (addNode/removeNode/etc), parameters | Rule action |
 | `YamlLifecycle` | phases (list) | Lifecycle structure |
-| `YamlPhase` | id, completionCondition, nodes | Lifecycle phase |
+| `YamlPhase` | id, completionCondition, nodes, imports (optional) | Lifecycle phase |
 | `YamlForEach` | as, in | forEach metadata on nodes (inline) |
 | `YamlIterationGroup` | name, as, in | Named iteration group (top-level `iterations:` key) |
 | `YamlImport` | module, as, when, parameters | Module import |
