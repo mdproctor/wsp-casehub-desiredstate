@@ -153,6 +153,24 @@ This single-separator convention makes generated IDs unambiguous — the provena
 (module vs forEach) doesn't matter at runtime; the node ID is opaque to the
 reconciliation loop.
 
+**Rule-generated node IDs:** `addNode:` and `updateNode:` mutations produced
+by declarative rules must also respect the `.` reservation. When a rule's
+`id:` template expands to a value containing `.` (e.g.,
+`"health-${match.mon.id}"` where `mon` binds to `pipe-monitor.monitor` →
+`health-pipe-monitor.monitor`), the rule engine rejects the mutation at
+evaluation time:
+
+> "Rule 'add-health-check' produces node ID 'health-pipe-monitor.monitor'
+> which contains the reserved '.' separator. Rule-generated node IDs must
+> not contain '.'. Use a flat ID scheme: e.g., 'health-monitor' with
+> '${match.mon.type}', or sanitize by replacing '.' in the template."
+
+This validation happens at rule evaluation time (not build time) because the
+template's expansion depends on actual graph content. The operator designs
+their ID template to avoid the conflict — typically using `${match.*.type}`
+(which never contains `.`) instead of `${match.*.id}` for uniqueness, or
+constructing IDs from known-safe components.
+
 ---
 
 ## 6. Features
@@ -627,6 +645,21 @@ different connection pool settings in the application phase).
 carried forward as their expanded concrete nodes. A later phase that needs
 to depend on forEach-generated nodes from an earlier phase references the
 template ID in `dependsOn` — alignment rules (§6.6) apply across phases.
+
+Named iteration groups (§6.6) are declared at the top level (`iterations:`
+alongside `lifecycle:`), shared across all phases. A `forEach: regional`
+reference inside any phase resolves to the same group. This enables
+cross-phase alignment: Phase 1's `regional-source.us-east` and Phase 2's
+`regional-processor.us-east` iterate over the same values because they
+reference the same group.
+
+**Per-phase variation is not supported for a shared group.** If Phase 1
+needs regions `["us-east", "eu-west"]` but Phase 3 adds `"ap-south"`, the
+operator must define a separate group (e.g., `regional-extended`) for Phase
+3. Phase 3 nodes referencing `regional-extended` cannot be structurally
+aligned with Phase 1's `regional` nodes — they are independent iteration
+groups. This is an acceptable limitation: per-phase groups would make
+cross-phase alignment impossible, which is the more valuable capability.
 
 **Completion condition vocabulary:**
 
