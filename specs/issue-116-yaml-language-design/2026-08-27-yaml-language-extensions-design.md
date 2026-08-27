@@ -110,6 +110,22 @@ The fault policy template factory resolves `${fault.*}` references against
 `FaultEvent` properties at fault time. The factory lambda captures the
 template map and resolves at invocation (same pattern as §8.5).
 
+**`${fault.*}` property mapping:**
+
+| YAML reference | `FaultEvent` accessor | Java type | String representation |
+|----------------|----------------------|-----------|---------------------|
+| `${fault.nodeId}` | `event.node().value()` | `String` | The `NodeId`'s string value |
+| `${fault.type}` | `event.type().name()` | `String` | Enum constant name: `PROVISION_FAILED` (uppercase) |
+| `${fault.detail}` | `event.detail()` | `String` | Verbatim fault detail message |
+
+The naming divergence (`${fault.nodeId}` vs `FaultEvent.node()`) is
+intentional — `nodeId` is the operator-facing name (what the YAML author
+cares about), while `node()` returns a `NodeId` wrapper. The template
+resolver calls `.value()` to extract the raw string. `${fault.type}` uses
+`FaultType.name()` (uppercase enum constant) because Jackson enum
+deserialization expects uppercase by default — the resolved value flows
+through `convertValue` into the spec class.
+
 **Breaking change:** The existing `VariableResolver` uses bare `${name}`
 references (e.g., `${source_uri}` in the pipeline-yaml example). This spec
 mandates `${var.name}` prefixed references. All existing YAML graph files
@@ -233,10 +249,14 @@ to `ThresholdFaultPolicy.Builder.faultCountStore()`. This ensures:
 
 **Architecture changes:**
 
-- `YamlGraphRecorder`: accept `List<FaultPolicyDescriptor>` and register
-  `ThresholdFaultPolicy` beans with template-based `ReviewSpecFactory` lambdas.
-  The lambda captures `NodeSpecRegistry`, a dedicated coercion-enabled
-  `ObjectMapper`, and the CDI `FaultCountStore` in its closure.
+- `YamlGraphRecorder`: accept `List<YamlFaultPolicy>` and build
+  `ThresholdFaultPolicy` beans directly via the builder API. Each tier's
+  `ReviewSpecFactory` is a template-based lambda that captures
+  `NodeSpecRegistry`, a dedicated coercion-enabled `ObjectMapper`, and the
+  CDI `FaultCountStore` in its closure. The YAML path bypasses
+  `FaultPolicyDescriptor`/`TierDescriptor` entirely — those types carry
+  `reviewMethodName` which is annotation-specific (names a Java method).
+  YAML tiers use template-based `ReviewSpecFactory` lambdas instead.
 - `YamlDesiredStateProcessor`: parse `faultPolicy:` YAML, build descriptors,
   validate tier types exist in the registry.
 - YAML model: add `List<YamlFaultPolicy>` to `YamlGraph`.
@@ -288,7 +308,38 @@ Each entry: `name: { type: <nodeType>, of: <bindingRef>, direction: dependencies
 - `direction:` defaults to `dependencies`.
 - `graph:` is optional — same semantics as `@GraphInvariant(graph={...})`.
   Supports exact, namespace wildcard (`pipeline:*`), global wildcard (`*:*`),
-  and `!`-prefixed exclusions.
+  and `!`-prefixed exclusions. **When `graph:` is omitted**, the invariant
+  applies to the enclosing YAML graph only (scoped to `source:<fileName>` —
+  the same graph produced by this YAML file). This matches the annotation
+  convention where in-class invariants are scoped to their enclosing
+  `@DesiredState` graph.
+
+**Violation details:**
+
+Each `GraphViolation` produced by a YAML invariant carries:
+- `invariantName` — the YAML key name (e.g., `every-sink-has-upstream`)
+- `sourceClassName` — `"yaml:<fileName>"` (matching the `source` field in
+  `DesiredStateGraphBuildItem`)
+- `message` — auto-generated: `"<invariantName> violated for [<anchorDesc>]"`
+  (matches `GraphInvariantEngine.validateParameterized()` existing format)
+- `affectedNodes` — the anchor node IDs from the failing binding tuple
+
+An optional `message:` field on the invariant provides a custom message
+template with `${match.*}` interpolation:
+
+```yaml
+invariants:
+  every-sink-has-upstream:
+    message: "Sink ${match.sink.id} has no upstream transformer"
+    match:
+      sink: { type: sink }
+    directDep:
+      upstream: { type: transformer, of: sink, direction: dependencies }
+```
+
+When `message:` is present, the custom template replaces the auto-generated
+message. `${match.*}` references resolve against the anchor bindings that
+triggered the violation.
 
 **Semantics:** For every anchor tuple (from `match:` cross-product), all
 remaining patterns must be satisfiable. If any pattern fails to bind for an
@@ -336,7 +387,8 @@ nodes:
 
 **Semantics:**
 
-- `when:` takes a `${var.*}` reference that resolves to a boolean string.
+- `when:` takes a `${var.*}` reference (or `${each.*}` inside a forEach
+  node — see §6.6) that resolves to a boolean string.
   Truthy values (case-insensitive): `true`, `yes`, `on`, `y`, `1`.
   Falsy values (case-insensitive): `false`, `no`, `off`, `n`, `0`.
   Any other value is a **build-time error** — not silently treated as false.
@@ -414,9 +466,11 @@ rules:
 | `addDependency:` | `AddDependency` | `from`, `to` |
 | `removeDependency:` | `RemoveDependency` | `from`, `to` |
 
-Action parameters support `${match.*}` interpolation for node ID and type
-references. Spec values in `addNode:` and `updateNode:` support `${var.*}`
-interpolation for configuration.
+Action parameters support `${match.*}` interpolation for node ID, type,
+and spec values. `${var.*}` interpolation is also supported in spec values
+for configuration data. Both namespaces are valid in `addNode:` and
+`updateNode:` spec blocks — `${match.*}` for referencing matched nodes,
+`${var.*}` for injecting configuration.
 
 `updateNode:` requires a **complete** spec — it replaces the existing node
 entirely, matching the runtime `GraphMutation.UpdateNode(NodeId, DesiredNode)`
@@ -442,7 +496,8 @@ as their native types — only `${}`-interpolated values require coercion.
   rules. Declarative and reflective rules are evaluated together — mixed YAML and
   Java rules on the same graph work correctly.
 - `graph:` scoping uses `GraphPatternMatcher` — same include/exclude semantics as
-  `@GraphRule(graph={...})`.
+  `@GraphRule(graph={...})`. When `graph:` is omitted, the rule applies to the
+  enclosing YAML graph only (same default as invariants — see §6.2).
 - Conflict detection, cycle detection, convergence checking, and mutation ordering
   all apply unchanged.
 - The `addNode` action's `type:` is validated against the `NodeSpecRegistry` at
@@ -599,8 +654,20 @@ runtime contract: each phase is reconciled independently.
 **When `lifecycle:` is present:** The top-level `nodes:` key is forbidden.
 Nodes live inside phases. The YAML produces `CompilationResult.Lifecycle`
 instead of `CompilationResult.single()`. All other features (`when:`, `forEach:`,
-rules, invariants) work within each phase independently — each phase's graph
-is compiled and evaluated through the rule/invariant engines separately.
+rules, invariants, imports) work within each phase independently — each
+phase's graph is compiled and evaluated through the rule/invariant engines
+separately.
+
+**Imports in lifecycle phases:** Module `imports:` can appear at two levels:
+- **Top-level `imports:`** (alongside `lifecycle:`) — the module's nodes are
+  included in **every phase**. This is for shared infrastructure modules
+  (e.g., a monitoring module that should exist in all phases).
+- **Per-phase `imports:`** (inside a phase's block) — the module's nodes
+  are included only in that phase.
+
+Top-level imports are expanded first, then per-phase imports. If the same
+module is imported at both levels (different `as:` aliases), they produce
+independent instances. Same `as:` alias at both levels is a build-time error.
 
 Fault policies are `@ApplicationScoped` CDI beans — they are NOT scoped per-phase.
 However, fault policy isolation works in practice because each phase reconciles
@@ -698,10 +765,15 @@ Alignment requires a named group reference. This removes the fragile naming
 convention (same `as` + identical `in`) in favor of explicit structural linkage.
 
 If a forEach node depends on a non-forEach node, each copy depends on the
-same fixed node. If two forEach nodes reference **different** named groups
-and depend on each other → build-time error. If an inline forEach node
-depends on a named-group forEach node (or vice versa) → build-time error
-with guidance to use the same named group.
+same fixed node. If a **non-forEach node depends on a forEach node** →
+build-time error: the template ID no longer exists after expansion (only
+stamped copies exist), so the dependency cannot resolve. This is analogous
+to the unconditional→conditional error (§6.3). If the intent is fan-in
+(depend on all copies), use a forEach node with the same iteration group.
+If two forEach nodes reference **different** named groups and depend on
+each other → build-time error. If an inline forEach node depends on a
+named-group forEach node (or vice versa) → build-time error with guidance
+to use the same named group.
 
 **Variable-sourced values:**
 
@@ -899,17 +971,23 @@ explicit imports.
 ```
 BUILD TIME                                COMPILE TIME (GoalCompiler.compile())
 ────────────                              ────────────────────────────────────
-1. Discover YAML files + modules          7. Resolve ${var.*} via VariableResolver
-2. Parse YAML model                       8. Expand forEach (stamp N copies per template)
-3. Resolve imports (expand modules,       9. Evaluate when: (include/exclude nodes)
-   apply alias prefixes, validate        10. Remove orphaned optional dependencies
-   nesting depth, detect import cycles)  11. Build DesiredNodes + Dependencies
+1. Discover YAML files + modules          7.  Resolve ${var.*} via VariableResolver
+2. Parse YAML model                       7b. Validate resolved dependency references
+3. Resolve imports (expand modules,            (post-variable-resolution — catches
+   apply alias prefixes, validate              templated refs that were deferred at
+   nesting depth, detect import cycles)        step 4)
+                                          8.  Expand forEach (stamp N copies per template)
+                                          9.  Evaluate when: (include/exclude nodes)
+                                         10.  Remove orphaned optional dependencies
+                                         11.  Build DesiredNodes + Dependencies
 4. Validate structure:                   12. GraphRuleEngine (YAML + annotation rules,
    - node types in registry                  fixed-point loop)
-   - dependency references valid         13. GraphInvariantEngine (YAML + annotation
-   - conditional dependency safety            invariants, single pass)
-   - forEach template consistency        14. Return CompilationResult
-   - rule action types in registry            (single or lifecycle)
+   - static dependency references valid  13. GraphInvariantEngine (YAML + annotation
+     (literal node IDs only — templated       invariants, single pass)
+     refs like ${var.*} are deferred)    14. Return CompilationResult
+   - conditional dependency safety            (single or lifecycle)
+   - forEach template consistency
+   - rule action types in registry
    - cross-surface namespace:name
      duplicate check
 5. Build descriptors (GraphDescriptor
@@ -978,8 +1056,12 @@ populate the same IR. The annotation processor populates
 `DeclarativeRuleDescriptor`. Downstream consumers (`DesiredStateGraphRecorder`,
 `YamlGraphRecorder`) work with the sealed interface.
 
-`FaultPolicyDescriptor` is already surface-agnostic — it carries the same
-data for both annotations and YAML.
+`FaultPolicyDescriptor` and `TierDescriptor` are annotation-specific —
+`TierDescriptor.reviewMethodName` names a Java method. The YAML path
+builds `ThresholdFaultPolicy` beans directly from `YamlFaultPolicy` via
+the builder API (§6.1), bypassing `FaultPolicyDescriptor` entirely. Both
+paths converge at `ThresholdFaultPolicy` — the runtime type is shared,
+only the construction differs.
 
 **ExpansionContext** (narrowed from `YamlExpansionContext`):
 
@@ -1148,15 +1230,38 @@ invariants, fault policies, etc. to the existing medallion pipeline.
 | D3 | No spec field access in rule interpolation | Defends declarative boundary; spec-aware rules use Java | `${match.sink.spec.field}` | Opens path to property-traversal language (Helm trap) |
 | D4 | Build-time error for unconditional→conditional deps | Silent removal causes runtime failures | Warning only | Operators deploy despite warnings |
 | D5 | forEach zero-values is error when dependents exist | Prevents dangling references | Allow empty expansion | Silent graph corruption |
-| D6 | Cross-phase re-declaration required | Matches runtime contract (separate graphs per phase) | Implicit carry-forward | Changes LifecycleManager semantics |
+| D6 | Implicit carry-forward across lifecycle phases | Avoids DRY violation — nodes reconciled in earlier phases are injected into later graphs so `dependsOn` resolves; re-declaration only for spec overrides | Explicit re-declaration | Redundant duplication, error-prone for large graphs |
 | D7 | Completion vocabulary: `allPresent`, `never`, `{ bean: "name" }` | Minimal built-in set with Java escape hatch | Extensible predicate DSL | Predicate language in YAML is unbounded complexity |
 | D8 | Rules/invariants fire per-phase | Matches runtime reconciliation scope | Cross-phase invariants | Requires merged graph concept that doesn't exist |
 | D9 | String-only module parameters (no nodeRef) | Avoids type system in YAML | Typed `nodeRef` parameter | Typed cross-boundary resolution is the Helm trap crack |
 | D10 | Module nesting capped at 2 levels | Bounds debugging complexity | Unlimited nesting | Crossplane experience shows deep nesting is a pain point |
-| D11 | GraphDescriptor unchanged — YAML data carried separately | Keeps shared IR clean | Extend GraphDescriptor with YAML fields | Breaks annotation processor contract |
+| D11 | GraphDescriptor becomes surface-agnostic via sealed descriptor interfaces | Rules and invariants use sealed hierarchies (Reflective/Declarative variants) so both surfaces populate the same IR | Keep YAML data in separate context | Dual-path architecture — consumers must handle two shapes for the same concept |
 | D12 | Phase: differentiators first (1: fault+invariant+when, 2: rules+lifecycle, 3: forEach+modules) | Ship value before catch-up | All at once | 7 features × pairwise interactions = unmanageable risk |
+| D13 | Named iteration groups for aligned forEach | Structural linkage — two nodes referencing the same group are guaranteed to iterate over the same values; inline forEach for standalone cases | Naming convention (same `as` + identical `in`) | Fragile — values can diverge silently, renaming is non-atomic |
+| D14 | Module-scoped rules and invariants fire against the full graph | Pattern-based matching provides natural scoping; cross-boundary rules (e.g., "every monitored node needs health check") require full visibility | Module-local scope only | Prevents useful structural assertions that span module boundaries |
+| D15 | Custom pattern matching engine (not Drools) for YAML rules | Research doc (§10) recommends Drools; this spec extends the existing `GraphRuleEngine` instead — requires explicit human decision (see §11 references) | Drools backend per #119 | Deferred — decision escalated to human |
+| D16 | Three-variant sealed hierarchy for resolved rules/invariants | Makes dispatch explicit in the type system — `ImperativeRule`, `ParameterizedReflectiveRule`, `DeclarativeRule` instead of boolean flag | Boolean `imperative` field | Conflates two structurally different evaluation strategies |
 
-## 11. References
+## 11. Deferred Items
+
+**Lifecycle hooks (#121):** Issue #121 ("YAML lifecycle hooks — imperative steps
+within transitions") is explicitly deferred from this spec. Lifecycle hooks
+require imperative step execution within phase transitions, which is structurally
+different from the declarative features specified here. The current spec provides
+the lifecycle phase structure (§6.5) and completion condition vocabulary needed
+as a foundation. Issue #121 remains open for a separate design spec.
+
+**Drools backend (#119):** The research document (§10) recommends Drools as the
+rule engine backend for YAML and operator-facing rules. Issue #119 is titled
+"YAML rules and invariants — Drools backend." This spec instead extends the
+existing custom `GraphRuleEngine`/`GraphInvariantEngine` with sealed interface
+hierarchies and a `PatternEvaluator` extraction. The Drools decision is captured
+in D15 and escalated to the human for explicit confirmation or reversal. The
+spec's design is compatible with either direction — if Drools is chosen, the
+`DeclarativeRule`/`DeclarativeInvariant` variants become Drools rule adapters
+instead of template evaluators. The sealed interface hierarchy works regardless.
+
+## 12. References
 
 - `api/.../ThresholdFaultPolicy.java` — fault policy builder API
 - `annotations/runtime/.../GraphRuleEngine.java` — fixed-point rule evaluation
@@ -1171,6 +1276,9 @@ invariants, fault policies, etc. to the existing medallion pipeline.
 - `examples/pipeline-annotated/.../MedallionPipeline.java` — annotation reference example
 - `examples/pipeline-yaml/.../medallion-pipeline.yaml` — YAML reference example
 - `runtime/.../LifecycleManager.java` — phase orchestration
+- `docs/research/2026-08-27-operator-declaration-language-research.md` — research document (Drools recommendation at §10)
 - #116 — operator-first declaration language vision
 - #117 — YAML surface foundation (closed)
 - #114 — shared pattern matching infrastructure (open)
+- #119 — YAML rules and invariants — Drools backend (open, decision escalated)
+- #121 — YAML lifecycle hooks — imperative steps within transitions (open, deferred)
