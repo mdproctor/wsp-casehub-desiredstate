@@ -1,2 +1,0 @@
-{"event":"promote","branch":"issue-117-yaml-surface-foundation","files":[],"timestamp":"2026-08-27T21:09:40.138284+00:00"}
-{"event":"land","repo":"desiredstate","branch":"issue-116-yaml-language-design","base_branch":"main","landed_sha":"730982faa990e4a4e1456ea0de557d4f767d7284","push_target":"upstream","mirrored":true,"stamped":true,"timestamp":"2026-08-28T05:07:30.812034+00:00"}
