@@ -649,6 +649,28 @@ The implementation is the existing `expandChain` logic from both engines,
 extracted into a shared utility. `PatternMatchingSupport` methods are
 called unchanged.
 
+- [ ] **Step 3b: Add wildcard type matching to PatternMatchingSupport**
+
+Modify `findDirectNeighbors`, `findReachable`, `existsRelational`, and
+`existsGlobal` to skip the type filter when `"*".equals(p.nodeType())`:
+
+```java
+// In findDirectNeighbors:
+if (!"*".equals(p.nodeType()) && !node.type().equals(NodeType.of(p.nodeType()))) {
+    continue;
+}
+```
+
+Add test:
+```java
+@Test
+void findDirectNeighbors_wildcardType_matchesAllTypes() {
+    // Graph: A(sink) -> B(transformer), A -> C(monitor)
+    // Pattern: directDep of A with type "*"
+    // Expected: returns both B and C
+}
+```
+
 - [ ] **Step 4: Refactor GraphInvariantEngine to use PatternEvaluator**
 
 Replace `expandChain` call in `validateParameterized` with:
@@ -860,6 +882,12 @@ Add `validateInvariants` and `toPatternDescriptors` methods in
 `YamlDesiredStateProcessor`. Convert `YamlPattern` entries to
 `PatternParameterDescriptor` instances with the correct `PatternKind`.
 
+When `graph:` is omitted on an invariant, default to the enclosing YAML
+graph's scope (`source:<fileName>` — same convention as annotation
+in-class invariants scoped to their enclosing `@DesiredState` graph).
+Populate `graphPatterns` with `[namespace:name]` from the parsed
+`YamlDesiredState` header.
+
 - [ ] **Step 5: Run tests**
 
 Run: `mvn --batch-mode test -pl yaml/deployment`
@@ -914,9 +942,34 @@ apply invariant validation:
 if (!declarativeInvariants.isEmpty()) {
     List<ResolvedInvariant> resolved = declarativeInvariants.stream()
             .map(d -> new ResolvedInvariant.DeclarativeInvariant(
-                    d.name(), d.patterns(), d.bindingNames()))
+                    d.name(), d.patterns(), d.bindingNames(),
+                    d.messageTemplate()))
             .toList();
     new GraphInvariantEngine().validate(graph, resolved);
+}
+```
+
+- [ ] **Step 3b: Implement custom message template resolution**
+
+In `DeclarativeInvariant`, when a `messageTemplate` is present, resolve
+`${match.*}` references against the anchor bindings that triggered the
+violation:
+
+```java
+// In GraphInvariantEngine.validateDeclarative:
+String message = decl.messageTemplate() != null
+        ? resolveMatchTemplate(decl.messageTemplate(), anchorBindings)
+        : decl.name() + " violated for " + anchorBindings.keySet();
+violations.add(new GraphViolation(decl.name(), "yaml:" + fileName,
+        message, affectedNodes));
+```
+
+Add test:
+```java
+@Test
+void declarativeInvariant_customMessage_resolvesMatchBindings() {
+    // Invariant with message: "Sink ${match.sink.id} has no upstream transformer"
+    // Expected: violation message = "Sink warehouse-sink has no upstream transformer"
 }
 ```
 
