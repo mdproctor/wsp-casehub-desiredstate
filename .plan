@@ -13,5 +13,9 @@ flyway-next-v: none
 
 ## Queue
 - [ ] casehubio/casehub-desiredstate#124 — Issue #124 ← active
+  - [x] Batch 1: Cross-Surface
+    - [x] Task 1: Standalone build items + export
+    - [x] Task 2: CrossSurfaceRuleResolutionStep + AdditionalRulesBuildItem
+    - [x] Task 3: YAML recorder integration + pipeline-yaml test
 - [ ] casehubio/casehub-desiredstate#121 — YAML lifecycle hooks
 - [ ] casehubio/casehub-desiredstate#122 — TypeScript DSL
