@@ -1,0 +1,17 @@
+# Work Plan — issue-124-cross-surface-rules
+
+## State
+branch: issue-124-cross-surface-rules
+state: scaffolded
+project-sha: 82446b1383143c75e31169d47fa624a6b05dc0a1
+date: 2026-08-28
+issue-repo: casehubio/casehub-desiredstate
+covers: 124,121,122
+design-repo: project
+design-section-hashes: 979de182:## Artifact Schema|4d2cc5ab:## §1 Introduction and Goals|4f6b26ef:## §2 Constraints|39b76cb9:## §3 Context and Scope|74aa736f:## §4 Solution Strategy|9ca8de62:## §5 Building Block View|f1938c56:## §6 Runtime View|65807a21:## §7 Deployment View|a03d508f:## §8 Crosscutting Concepts|b2e1b57c:## §9 Journeys and Chapters|598f3a04:## §10 Architectural Decisions|1f604475:## §11 Quality Requirements|af5f260f:## §12 Risks and Technical Debt|42d51385:## §13 Glossary
+flyway-next-v: none
+
+## Queue
+- [ ] casehubio/casehub-desiredstate#124 — Issue #124 ← active
+- [ ] casehubio/casehub-desiredstate#121 — YAML lifecycle hooks
+- [ ] casehubio/casehub-desiredstate#122 — TypeScript DSL
