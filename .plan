@@ -13,14 +13,14 @@ flyway-next-v: none
 
 ## Queue
 - [ ] casehubio/casehub-desiredstate#118 — Issue #118 ← active
-  - [ ] Batch 1: forEach Model
-    - [ ] Task 1: Model types + VariableResolver each scope
-    - [ ] Task 2: Build-time forEach validation
-  - [ ] Batch 2: forEach Expansion
-    - [ ] Task 3: ForEachExpander + GoalCompiler integration
-    - [ ] Task 4: Pipeline-yaml forEach integration test
-  - [ ] Batch 3: Module Model
-    - [ ] Task 5: Module model types + discovery + validation
-  - [ ] Batch 4: Module Expansion
-    - [ ] Task 6: ModuleExpander + GoalCompiler integration
-    - [ ] Task 7: Module rules/invariants + pipeline-yaml integration
+  - [x] Batch 1: forEach Model
+    - [x] Task 1: Model types + VariableResolver each scope
+    - [x] Task 2: Build-time forEach validation
+  - [x] Batch 2: forEach Expansion
+    - [x] Task 3: ForEachExpander + GoalCompiler integration
+    - [x] Task 4: Pipeline-yaml forEach integration test
+  - [x] Batch 3: Module Model
+    - [x] Task 5: Module model types + discovery + validation
+  - [x] Batch 4: Module Expansion
+    - [x] Task 6: ModuleExpander + GoalCompiler integration
+    - [x] Task 7: Module rules/invariants + pipeline-yaml integration
