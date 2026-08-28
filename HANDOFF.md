@@ -2,13 +2,16 @@
 
 ## Last Session
 
-Designed, adversarially reviewed, and began implementing #116 (YAML language extensions — operator-first declaration language). Seven features across four phases: YAML rules, invariants, fault policies, when:, forEach, modules, lifecycle phases, plus TS DSL as Phase 4. Design spec (1440 lines) survived 6 adversarial agents and a 4-dimension standard review (79 issues, 12 rounds, $232). Competitive comparison validated the design scales down (20 lines / 15% boilerplate for simple cases vs Terraform's 35 / 40%). Implementation started on Phase 1.
+Completed Phase 1 of #116 (YAML language extensions). Batches 3-5 implemented this session: PatternEvaluator extraction, sealed interface hierarchy (ResolvedRule/ResolvedInvariant with Imperative/ParameterizedReflective/Declarative variants), YAML invariants with structural pattern assertions, and conditional inclusion (when:) with dependency safety.
 
-**Key decisions:** D6 revised to implicit carry-forward across lifecycle phases. D15 (Drools vs custom engine) escalated — plan works with either outcome. Phase 4 (TS DSL via TSJ) deferred to end but part of this delivery. `${var.}` prefix required as breaking change — migration done.
+**Implementation this session (8 commits, Batches 3-5):**
+- **Batch 3 — Engine Infrastructure:** PatternEvaluator extracted from GraphRuleEngine and GraphInvariantEngine (~80 lines of duplicated expandChain logic eliminated). Wildcard `*` type matching in PatternMatchingSupport. Sealed interface hierarchy: `ResolvedRule` and `ResolvedInvariant` with three variants each (Imperative, ParameterizedReflective, Declarative). Old `ResolvedGraphRule`/`ResolvedGraphInvariant` records removed.
+- **Batch 4 — Declarative Invariants:** YamlInvariant/YamlPattern model types, build-time validation (match required, of-references checked, type validated). YamlInvariantConverter bridges YAML model to DeclarativeInvariant. GoalCompiler validates invariants via GraphInvariantEngine after graph construction. Custom message templates with `${match.*}` resolution. Pipeline-yaml integration test.
+- **Batch 5 — Conditional Inclusion:** `when:` field on YamlNode. `List<Object>` dependsOn supporting `{ node: "id", optional: true }` syntax. Build-time error when unconditional node depends on conditional node. Compile-time when: evaluation (truthy: true/yes/on/y/1, falsy: false/no/off/n/0). Optional dependencies to excluded nodes silently removed. Pipeline-yaml integration test with debug-validator node.
 
-**Implementation:** Batch 1 (Foundation) and Batch 2 (Fault Policy) complete. VariableResolver prefix migration, YAML 1.2 boolean verification, fault policy model types, YamlFaultPolicyBuilder with template `${fault.*}` resolution, deployment processor validation, pipeline-yaml integration test. Next: Batch 3 (PatternEvaluator extraction + sealed interface refactoring).
+**Phase 1 complete.** An operator can write a single YAML file with nodes, dependencies, fault policies (template-based escalation), structural invariants (pattern assertions), and conditional nodes — no Java required. 41 new tests across the session.
 
-**Issues created:** #124 (cross-surface rule/invariant resolution — deferred to Phase 2).
+**Next: Phase 2** — Declarative graph rules (structural rewriting in YAML) and lifecycle phases (build-then-operate). The sealed interface and PatternEvaluator infrastructure from Batch 3 directly enables this — `DeclarativeRule` variant is already in place but not yet wired for YAML.
 
 ## Branch
 
