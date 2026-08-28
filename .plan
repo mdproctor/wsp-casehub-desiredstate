@@ -2,7 +2,7 @@
 
 ## State
 branch: issue-124-cross-surface-rules
-state: scaffolded
+state: active
 project-sha: 82446b1383143c75e31169d47fa624a6b05dc0a1
 date: 2026-08-28
 issue-repo: casehubio/casehub-desiredstate
@@ -12,10 +12,13 @@ design-section-hashes: 979de182:## Artifact Schema|4d2cc5ab:## §1 Introduction 
 flyway-next-v: none
 
 ## Queue
-- [ ] casehubio/casehub-desiredstate#124 — Issue #124 ← active
-  - [x] Batch 1: Cross-Surface
-    - [x] Task 1: Standalone build items + export
-    - [x] Task 2: CrossSurfaceRuleResolutionStep + AdditionalRulesBuildItem
-    - [x] Task 3: YAML recorder integration + pipeline-yaml test
-- [ ] casehubio/casehub-desiredstate#121 — YAML lifecycle hooks
+- [x] casehubio/casehub-desiredstate#124 — Issue #124
+- [ ] casehubio/casehub-desiredstate#121 — YAML lifecycle hooks ← active
+  - [x] Batch 1: Model Types
+    - [x] Task 1: LifecycleStep + HookDescriptor + DesiredNode
+  - [ ] Batch 2: Step Executors
+    - [ ] Task 2: LifecycleStepExecutor + three implementations
+    - [ ] Task 3: SimpleTransitionExecutor hook integration
+  - [ ] Batch 3: YAML Wiring
+    - [ ] Task 4: GoalCompiler hook resolution + integration test
 - [ ] casehubio/casehub-desiredstate#122 — TypeScript DSL
