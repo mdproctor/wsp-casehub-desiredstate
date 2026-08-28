@@ -25,7 +25,7 @@
 
 ## D3: No spec field access in rule interpolation
 
-**Choice:** Rule action interpolation supports `${match.binding.id}` and `${match.binding.type}` only. No `${match.binding.spec.field}`.
+**Choice:** Rule action interpolation supports `${match.binding.id}`, `${match.binding.type}`, and `${match.binding.flatId}` only. No `${match.binding.spec.field}`. `.flatId` (added via cross-cutting review R1-05) replaces `.` with `-` for safe rule-generated IDs.
 **Alternatives:**
 - Closed set of spec accessors (`.spec.<field>`) — more powerful but opens path to property traversal
 - Full spec access with arbitrary nesting — Helm trap
@@ -59,16 +59,16 @@
 **Exploration:** quick
 **Status:** captured
 
-## D6: Cross-phase re-declaration required
+## D6: Implicit carry-forward across lifecycle phases
 
-**Choice:** Nodes from earlier lifecycle phases must be explicitly re-declared in later phases to be referenced via `dependsOn`.
+**Choice:** Nodes from earlier lifecycle phases are implicitly carried forward into later phases — injected into the later phase's `DesiredStateGraph` at compile time so `dependsOn` references resolve. Re-declaration is only needed to override a carried-forward node's spec.
 **Alternatives:**
-- Implicit carry-forward (completed phase nodes automatically appear in subsequent phases) — changes `LifecycleManager` semantics
-**Rationale:** Each phase produces a separate `DesiredStateGraph` in the runtime. The `LifecycleManager` does `compareAndSetDesired` with the new phase's graph, not a merge. Implicit carry-forward would require changing the runtime contract. Re-declaration matches the existing Java pattern (`ExpansionGoalCompiler` re-declares nodes across phases).
-**Trade-offs:** Operators must repeat node declarations across phases. Build-time validation provides clear guidance when a cross-phase reference is detected. Re-declared nodes must have identical type and spec — validated at build time.
-**Sources:** Adversarial review (lifecycle agent), `ExpansionGoalCompiler` example, `LifecycleManager` implementation
+- Explicit re-declaration (earlier revision) — operators must repeat every node declaration in every phase that references it. DRY violation for large graphs.
+**Rationale:** Carry-forward is a compile-time concern, not a runtime concern. The compile-time injection adds carried-forward nodes as already-PRESENT in the later phase's graph — the planner skips them. `LifecycleManager` semantics are unchanged: each phase still produces a separate `DesiredStateGraph`, and `compareAndSetDesired` works as before.
+**Trade-offs:** Phases must be compiled sequentially (Phase N depends on Phase N-1's output). This sequential dependency is inherent.
+**Sources:** Adversarial review (lifecycle agent, cross-cutting review R1-03)
 **Exploration:** deep-analysis
-**Status:** captured
+**Status:** captured (revised — see spec §6.5)
 
 ## D7: Completion vocabulary — allPresent, never, bean reference
 
@@ -116,17 +116,17 @@
 **Exploration:** quick
 **Status:** captured
 
-## D11: GraphDescriptor unchanged
+## D11: GraphDescriptor becomes surface-agnostic via sealed descriptor interfaces
 
-**Choice:** YAML-specific metadata (forEach, when, declarative rules/invariants) is carried in a separate `YamlExpansionContext`, not added to `GraphDescriptor`.
+**Choice:** `GraphDescriptor` evolves from annotation-centric to surface-agnostic IR. Rule and invariant descriptors become sealed interfaces (`ReflectiveRuleDescriptor` / `DeclarativeRuleDescriptor`). YAML-specific expansion metadata (forEach, when) lives in a separate `ExpansionContext`.
 **Alternatives:**
+- Keep `GraphDescriptor` unchanged with all YAML data in `YamlExpansionContext` (earlier revision) — dual-path architecture where consumers handle two shapes for the same concept
 - Extend `GraphDescriptor` with YAML fields — polymorphic descriptors, potential annotation processor breakage
-- Make `GraphDescriptor` fields polymorphic (sealed interfaces) — cascading type changes
-**Rationale:** `GraphDescriptor` is a record shared between annotation and YAML surfaces. Adding YAML-specific fields (forEach metadata, when conditions, declarative action descriptors) pollutes the shared IR. The YAML recorder already builds its own `GoalCompiler` lambda — passing expansion metadata alongside the `GraphDescriptor` is clean and non-invasive.
-**Trade-offs:** Two data structures travel through the YAML build pipeline instead of one. The separation is worth the clarity.
-**Sources:** Adversarial review (architecture agent — "Path B is cleaner")
-**Exploration:** quick
-**Status:** captured
+**Rationale:** Rules and invariants are the same concept regardless of declaration surface. Sealed interfaces make both surfaces populate the same IR. Only forEach/when metadata — genuinely surface-specific expansion logic — stays in a separate `ExpansionContext`.
+**Trade-offs:** Descriptor records become sealed interfaces — cascading type changes. Clean break worth making.
+**Sources:** Adversarial review (architecture agent, structure review STR-R1-04), cross-cutting review R1-09
+**Exploration:** deep-analysis
+**Status:** captured (revised — see spec §8.2)
 
 ## D12: Phase implementation order
 
