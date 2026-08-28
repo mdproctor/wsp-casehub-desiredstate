@@ -68,6 +68,10 @@ reference.
 
 - `.id` — the node's `NodeId` value (string)
 - `.type` — the node's `NodeType` value (string)
+- `.flatId` — the node's `NodeId` value with `.` replaced by `-` (string).
+  Safe for use in rule-generated node IDs where the matched node may be
+  module-scoped or forEach-generated (e.g., `pipe-monitor.monitor` →
+  `pipe-monitor-monitor`). See §5 for rule-generated ID guidance.
 
 Spec field access (`.spec.<field>`) is deliberately excluded. YAML rules that
 need spec-level data require Java `@GraphRule`. This boundary prevents the
@@ -126,6 +130,24 @@ resolver calls `.value()` to extract the raw string. `${fault.type}` uses
 deserialization expects uppercase by default — the resolved value flows
 through `convertValue` into the spec class.
 
+**YAML parsing configuration:**
+
+The desiredstate YAML parser uses YAML 1.2 Core Schema boolean resolution.
+Only bare `true` and `false` are boolean literals — `yes`, `no`, `on`, `off`
+remain strings. This prevents YAML's automatic boolean coercion from
+corrupting variable values and forEach iteration values:
+
+- `variables: { monitoring_enabled: yes }` → `Map<String, String>` entry
+  `"monitoring_enabled" → "yes"` (string, not boolean)
+- `forEach: { in: [yes, no, maybe] }` → `List<String>` `["yes", "no", "maybe"]`
+  (all strings)
+- `when: "${var.monitoring_enabled}"` evaluates `"yes"` as truthy (§6.3
+  vocabulary)
+
+Implementation: configure Jackson `YAMLFactory` with a custom SnakeYAML
+`Resolver` that restricts the `!!bool` tag to YAML 1.2 values only
+(`true|True|TRUE|false|False|FALSE`). All other bare values remain strings.
+
 **Breaking change:** The existing `VariableResolver` uses bare `${name}`
 references (e.g., `${source_uri}` in the pipeline-yaml example). This spec
 mandates `${var.name}` prefixed references. All existing YAML graph files
@@ -166,10 +188,17 @@ evaluation time:
 > '${match.mon.type}', or sanitize by replacing '.' in the template."
 
 This validation happens at rule evaluation time (not build time) because the
-template's expansion depends on actual graph content. The operator designs
-their ID template to avoid the conflict — typically using `${match.*.type}`
-(which never contains `.`) instead of `${match.*.id}` for uniqueness, or
-constructing IDs from known-safe components.
+template's expansion depends on actual graph content. The operator designs their ID template to avoid the conflict:
+
+- `${match.*.flatId}` — the preferred accessor for rule-generated IDs.
+  Replaces `.` with `-`, producing a safe ID even when the matched node
+  is module-scoped or forEach-generated. E.g., matching `pipe-monitor.monitor`
+  → `health-${match.mon.flatId}` → `health-pipe-monitor-monitor`.
+- `${match.*.type}` — safe when the rule's pattern guarantees at most one
+  match per type. Not suitable when multiple nodes of the same type exist
+  (produces duplicate IDs → `ConflictingMutationException`).
+- Known-safe literal components — when the ID scheme doesn't reference
+  matched node identifiers.
 
 ---
 
@@ -648,6 +677,14 @@ forEach-generated nodes — alignment rules (§6.6) apply across phases.
 Non-forEach nodes cannot reference a forEach template ID even across
 phases (same build-time error as §6.6).
 
+**forEach template re-declaration is prohibited.** A later phase cannot
+re-declare a forEach template from an earlier phase. Carried-forward
+forEach nodes are their expanded concrete forms (e.g., `regional-source.us-east`)
+— the template concept does not survive expansion. These concrete node IDs
+contain the reserved `.` separator and cannot appear in user declarations.
+If a later phase needs different specs for the same iteration values, declare
+new forEach nodes with a different template ID.
+
 Named iteration groups (§6.6) are declared at the top level (`iterations:`
 alongside `lifecycle:`), shared across all phases. A `forEach: regional`
 reference inside any phase resolves to the same group. This enables
@@ -987,7 +1024,15 @@ invariants:
 ```
 
 Module rules and invariants are promoted to the top-level rule/invariant lists
-after module expansion and alias prefixing. They fire against the **full graph**,
+after module expansion and alias prefixing. **Promoted rules/invariants with
+no explicit `graph:` field inherit the importing graph's scope**
+(`source:<importingFileName>`). A module file is a fragment, not a standalone
+graph — the default scope ("enclosing YAML graph only") cannot apply to
+module-defined rules because there is no enclosing graph. Scope inheritance
+ensures module rules fire against the graph they were imported into. If a
+module rule needs broader scope, it must declare an explicit `graph:` field.
+
+Promoted rules fire against the **full graph** (post-module-expansion),
 not just the module's own nodes. Pattern-based matching provides natural scoping:
 a rule matching `type: monitor` only fires against monitor nodes, which are
 typically the module's own nodes. If a module rule needs to match broader node
@@ -1181,6 +1226,13 @@ This aligns with issue #114 (shared pattern matching infrastructure) — the
 `PatternEvaluator` is the next step after the existing `PatternMatchingSupport`
 utility methods.
 
+**Wildcard type matching:** The `type: "*"` wildcard (§6.2) modifies
+`PatternMatchingSupport` methods — `findDirectNeighbors`, `findReachable`,
+`existsRelational`, `existsGlobal` — to skip the type filter when
+`"*".equals(p.nodeType())`. This change is orthogonal to the
+`PatternEvaluator` extraction but touches the same infrastructure.
+Apply the wildcard change before or alongside the extraction.
+
 **Binding name extraction:** `getParameterNames()` moves from
 `PatternMatchingSupport.getParameterNames(Method)` to a method on the sealed
 interface — `ImperativeRule` returns empty (no bindings),
@@ -1235,6 +1287,32 @@ At fault time: resolve `${fault.*}` against the `FaultEvent`, deserialize
 into the `NodeSpec` subclass, return. The `nodeType()` is provided directly
 from the tier's `type:` field — no probe needed.
 
+### 8.6 Lifecycle GoalCompiler
+
+For lifecycle mode, `YamlGraphRecorder.createYamlGoalCompiler()` produces a
+`GoalCompiler` lambda that compiles phases sequentially with carry-forward
+injection:
+
+1. Build per-phase `ExpansionContext` instances from the YAML model
+2. For Phase 1: compile through steps 7–14 (variable resolution → forEach →
+   when → build nodes → rules → invariants)
+3. Extract Phase 1's output graph (post-rules, post-invariants)
+4. For each subsequent phase: inject carried-forward nodes from all preceding
+   phases' output graphs into the phase's input, then compile through
+   steps 7–14
+5. Return `CompilationResult.lifecycle(phases)`
+
+This is architecturally distinct from the annotation path's
+`applyGraphRulesToResult()`, which applies rules per-phase independently
+without carry-forward. In the annotation path, the developer's `GoalMethod`
+produces complete phases via Java code — cross-phase dependencies are managed
+by the developer. The YAML path automates carry-forward because the operator's
+declarative YAML cannot perform graph composition.
+
+The `GoalCompiler` lambda captures per-phase `ExpansionContext` instances and
+`GraphDescriptor`. Compilation is inherently sequential — Phase N's input
+depends on Phase N-1's output.
+
 ## 9. Cross-Cutting Concerns
 
 ### 9.1 Dry-Run / Preview
@@ -1255,6 +1333,21 @@ YAML-originated errors must reference the source YAML file and line number,
 not generated class names or descriptor indices. The `source` field in
 `DesiredStateGraphBuildItem` already tracks provenance (`yaml:<fileName>`).
 Extend this to carry line numbers for individual nodes, rules, and invariants.
+
+**Multi-source provenance:** Errors spanning multiple source locations require
+a provenance chain. `DesiredStateGraphBuildItem.source()` evolves from
+`String` to a `SourceProvenance` record:
+
+| Scenario | Provenance chain |
+|----------|-----------------|
+| Single-source | `yaml:pipeline.yaml:23` |
+| Module-promoted rule | `yaml:modules/monitoring.yaml:15` ← `yaml:pipeline.yaml:5 (import)` |
+| Cross-surface rule | `annotation:com.example.CrossRules#ensureMonitoring` ← `yaml:pipeline.yaml (target graph)` |
+| Carry-forward error | `yaml:pipeline.yaml:42 (phase:application)` ← `yaml:pipeline.yaml:12 (phase:infrastructure, carry-forward)` |
+
+Error messages render the chain as: `"at yaml:modules/monitoring.yaml:15,
+imported from yaml:pipeline.yaml:5"`. This ensures operators can trace
+multi-origin failures to their root source.
 
 ### 9.3 Testing
 
@@ -1312,6 +1405,12 @@ in D15 and escalated to the human for explicit confirmation or reversal. The
 spec's design is compatible with either direction — if Drools is chosen, the
 `DeclarativeRule`/`DeclarativeInvariant` variants become Drools rule adapters
 instead of template evaluators. The sealed interface hierarchy works regardless.
+
+**ARC42STORIES update dependency:** When D15 is resolved, ARC42STORIES §12
+must be updated to remove or revise the Drools-specific risk entries ("Drools
+version dependency" and "Interim two-engine split"). Additionally,
+ARC42STORIES C10 references "Drools for YAML rules" — this must be revised
+to match the D15 outcome. Track as a GitHub issue dependent on D15 resolution.
 
 ## 12. References
 
