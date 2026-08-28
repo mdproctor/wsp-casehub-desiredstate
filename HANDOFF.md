@@ -2,28 +2,29 @@
 
 ## Last Session
 
-Completed Phase 1 of #116 (YAML language extensions). Batches 3-5 implemented this session: PatternEvaluator extraction, sealed interface hierarchy (ResolvedRule/ResolvedInvariant with Imperative/ParameterizedReflective/Declarative variants), YAML invariants with structural pattern assertions, and conditional inclusion (when:) with dependency safety.
+Delivered Phase 3 YAML features (#118 forEach, #120 modules), e-commerce tutorials (#125), and cross-surface rule resolution (#124). Started #121 (lifecycle hooks) — Batch 1/3 complete.
 
-**Implementation this session (8 commits, Batches 3-5):**
-- **Batch 3 — Engine Infrastructure:** PatternEvaluator extracted from GraphRuleEngine and GraphInvariantEngine (~80 lines of duplicated expandChain logic eliminated). Wildcard `*` type matching in PatternMatchingSupport. Sealed interface hierarchy: `ResolvedRule` and `ResolvedInvariant` with three variants each (Imperative, ParameterizedReflective, Declarative). Old `ResolvedGraphRule`/`ResolvedGraphInvariant` records removed.
-- **Batch 4 — Declarative Invariants:** YamlInvariant/YamlPattern model types, build-time validation (match required, of-references checked, type validated). YamlInvariantConverter bridges YAML model to DeclarativeInvariant. GoalCompiler validates invariants via GraphInvariantEngine after graph construction. Custom message templates with `${match.*}` resolution. Pipeline-yaml integration test.
-- **Batch 5 — Conditional Inclusion:** `when:` field on YamlNode. `List<Object>` dependsOn supporting `{ node: "id", optional: true }` syntax. Build-time error when unconditional node depends on conditional node. Compile-time when: evaluation (truthy: true/yes/on/y/1, falsy: false/no/off/n/0). Optional dependencies to excluded nodes silently removed. Pipeline-yaml integration test with debug-validator node.
+**Landed on main this session:**
+- `8f20c00` — forEach cardinality stamping and composable modules (Closes #118, #120)
+- `82446b1` — e-commerce tutorial series (Closes #125)
 
-**Phase 1 complete.** An operator can write a single YAML file with nodes, dependencies, fault policies (template-based escalation), structural invariants (pattern assertions), and conditional nodes — no Java required. 41 new tests across the session.
+**On branch `issue-124-cross-surface-rules` (covers #124, #121, #122):**
+- #124 cross-surface rules — 3 tasks complete, `Closes #124` in commit
+- #121 lifecycle hooks — Batch 1/3 done (model types: LifecycleStep, HookDescriptor, DesiredNode extension, YamlHooks). Batches 2-3 remain (step executors, SimpleTransitionExecutor integration, YAML wiring)
+- #122 TypeScript DSL — queued, not started
 
-**Next: Phase 2** — Declarative graph rules (structural rewriting in YAML) and lifecycle phases (build-then-operate). The sealed interface and PatternEvaluator infrastructure from Batch 3 directly enables this — `DeclarativeRule` variant is already in place but not yet wired for YAML.
+**Resume:** `work continue` → picks up #121 Batch 2. Plan at `plans/2026-08-29-lifecycle-hooks.md`.
 
 ## Branch
 
-`issue-116-yaml-language-design` — project + workspace
+`issue-124-cross-surface-rules` — project + workspace
 
 ## References
 
 | Artifact | Path |
 |----------|------|
-| Design spec | `specs/issue-116-yaml-language-design/2026-08-27-yaml-language-extensions-design.md` |
-| Decisions (16) | `specs/issue-116-yaml-language-design/decisions.md` |
-| Competitive comparison | `specs/issue-116-yaml-language-design/2026-08-28-scales-down-comparison.md` |
-| Phase 1 plan | `plans/2026-08-28-phase1-yaml-extensions.md` |
-| Blog | `docs/blog/2026-08-28-mdp01-the-operator-surface-that-scales-down.md` |
-| Review workspaces | `~/reviews/casehub-desiredstate/yaml-language-extensions-*` |
+| #121 lifecycle hooks spec | `specs/issue-124-cross-surface-rules/2026-08-29-lifecycle-hooks-design.md` |
+| #121 lifecycle hooks plan | `plans/2026-08-29-lifecycle-hooks.md` |
+| #124 cross-surface spec | `specs/issue-124-cross-surface-rules/2026-08-28-cross-surface-rules-design.md` |
+| Phase 3 design spec | `docs/specs/issue-116-yaml-language-design/2026-08-27-yaml-language-extensions-design.md` |
+| Tutorial README | `examples/webapp-yaml/README.md` |
