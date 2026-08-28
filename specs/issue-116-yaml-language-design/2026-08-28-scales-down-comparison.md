@@ -272,12 +272,44 @@ Helm requires Go template loops. Ansible requires explicit tasks per host.
 the manual approach is simpler. The rule pays off at 3+ apps. Operators who never
 have more than one instance of a type gain nothing from rules.
 
-## 4. The Hybrid Replacement Scenario
+## 4. Greenfield Lifecycle Comparison
 
-A real deployment requiring Terraform + Helm + Ansible because no single tool
-covers the full lifecycle.
+The three-tool stack (Terraform + Helm + Ansible) is not a deliberate best
+practice — it's accumulated tooling from different eras. Even FSIs starting
+greenfield today typically pick 1-2 tools, not 3:
 
-**Today's three-tool stack** (documented by LOAD Digital, Scalr, Spacelift):
+| FSI profile | Greenfield choice | Why |
+|-------------|-------------------|-----|
+| K8s-native | Terraform + ArgoCD | Terraform for infra, GitOps for apps. 2 tools. |
+| Serverless | Terraform only | No machines, no K8s. 1 tool. |
+| VM-heavy | Terraform + Ansible | Terraform provisions, Ansible hardens. 2 tools. |
+| Platform eng | Crossplane | Unify infra + K8s. 1 tool. |
+
+The fair comparison is greenfield vs greenfield — CaseHub against the tools
+a sophisticated team would actually choose for a new platform today.
+
+**Greenfield: CaseHub vs Terraform + ArgoCD (most common FSI choice)**
+
+| Concern | Terraform + ArgoCD | CaseHub YAML |
+|---------|-------------------|--------------|
+| Day 0 — provision | ✅ Terraform | ✅ lifecycle phase 1 |
+| Day 1 — platform | ⚠️ mix of Terraform + ArgoCD | ✅ lifecycle phase 2 |
+| Day 2 — deploy app | ✅ ArgoCD (GitOps) | ✅ lifecycle phase 3 |
+| Drift detection | ✅ ArgoCD continuous, Terraform on-demand | ✅ continuous reconciliation |
+| Fault handling | ❌ neither tool | ✅ multi-tier escalation |
+| Structural rules | ❌ not a concept | ✅ graph rules |
+| Live invariants | ❌ OPA at plan time only | ✅ continuous enforcement |
+| Audit separation | ✅ separate state stores | ⚠️ per-phase audit events (needs design) |
+| Ecosystem | ✅ 4,000 providers + Helm charts | ❌ write your own NodeSpecs |
+| Preview | ✅ terraform plan + ArgoCD diff | ❌ not yet |
+
+CaseHub covers Day 0 through Day N in one declaration. Terraform + ArgoCD
+covers Day 0 and Day 2 well but leaves fault handling, structural rules,
+and continuous invariants to you. The trade is lifecycle completeness vs
+ecosystem breadth.
+
+**The three-tool stack for context** (documented by LOAD Digital, Scalr,
+Spacelift — included for reference, not as the primary comparison):
 
 | Phase | Tool | Files | Lines | What it does |
 |-------|------|-------|-------|-------------|
@@ -287,17 +319,9 @@ covers the full lifecycle.
 | Glue | CI/CD pipeline | 1-2 files | 100-200 | Stages, artifact passing |
 | **Total** | **3 tools** | **~20-27 files** | **~1000-2000** | 3 languages, 3 state models |
 
-**What breaks at handoffs:**
-- Terraform outputs → Ansible inventory: Python glue script, breaks on output format changes
-- Ansible → Helm: kubeconfig handoff, breaks on cluster auth changes
-- If Ansible fails mid-apply using Terraform provisioners: Terraform is left in
-  an inconsistent state (HashiCorp's own docs call provisioners "a last resort")
-
-**Fault handling in the three-tool stack:**
-- Terraform: no fault handling (retry at provider level only)
-- Helm: no drift detection
-- Ansible: `rescue`/`always` blocks, no continuous reconciliation
-- Bridge: PagerDuty + human runbooks + manual `terraform plan` runs
+This combination exists because each tool chose to be excellent at one
+interface (cloud API, SSH, K8s API) rather than mediocre at all of them.
+It is not a deliberate architecture — it is accumulated tool specialisation.
 
 **CaseHub YAML equivalent** (lifecycle phases):
 

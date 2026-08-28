@@ -130,12 +130,13 @@
 
 ## D12: Phase implementation order
 
-**Choice:** Phase 1: fault policy + invariants + when:. Phase 2: rules + lifecycle. Phase 3: forEach + modules.
+**Choice:** Phase 1: fault policy + invariants + when:. Phase 2: rules + lifecycle. Phase 3: forEach + modules. Phase 4: TypeScript DSL surface.
 **Alternatives:**
 - All at once — 7 features × pairwise interactions = unmanageable risk
 - Differentiators only (rules, invariants, fault policy) then everything else — puts rules (highest complexity) in Phase 1
-**Rationale:** Phase 1 ships three low-to-medium complexity features that include two differentiators (fault policy, invariants) and one table-stakes feature (when:). Phase 2 tackles the highest-value differentiator (rules) alongside lifecycle phases. Phase 3 defers the highest-complexity table-stakes features (forEach, modules) until real operator demand validates the need.
-**Trade-offs:** forEach and modules are deferred. Operators needing these features must use Java `GoalCompiler` or multiple YAML files until Phase 3.
-**Sources:** Adversarial review (YAGNI agent), complexity analysis
+- TS in parallel with YAML — risk of IR churn; TS benefits from IR being battle-tested through 3 YAML phases
+**Rationale:** Phase 1 ships three low-to-medium complexity features that include two differentiators (fault policy, invariants) and one table-stakes feature (when:). Phase 2 tackles the highest-value differentiator (rules) alongside lifecycle phases. Phase 3 defers the highest-complexity table-stakes features (forEach, modules) until real operator demand validates the need. Phase 4 adds the TypeScript DSL surface — same IR, TSJ pre-parser for purity enforcement, type-safe spec access. Deferred to end so the IR is stable, but delivered as part of this body of work.
+**Trade-offs:** forEach and modules are deferred. TS surface deferred until IR is proven. Operators needing these features must use Java `GoalCompiler` or multiple YAML files until Phase 3. TS authors must wait for Phase 4.
+**Sources:** Adversarial review (YAGNI agent), complexity analysis, user direction
 **Exploration:** deep-analysis
-**Status:** captured
+**Status:** captured (revised — added Phase 4 TS)
