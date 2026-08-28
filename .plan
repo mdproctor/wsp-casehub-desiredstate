@@ -2,7 +2,7 @@
 
 ## State
 branch: issue-125-ecommerce-tutorials
-state: scaffolded
+state: closing:promoted
 project-sha: 8f20c008c87efd8afe6745aae600b06b83bdb17c
 date: 2026-08-28
 issue-repo: casehubio/casehub-desiredstate
@@ -11,5 +11,6 @@ design-repo: project
 design-section-hashes: 
 flyway-next-v: none
 
+evidence-era: true
 ## Queue
 - [ ] casehubio/casehub-desiredstate#125 — Issue #125 ← active
