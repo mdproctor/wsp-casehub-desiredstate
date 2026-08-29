@@ -115,7 +115,7 @@ desiredstate `ts-dsl/` layers domain logic on top, paralleling how
 | Modules / composition | ✓ (native `import`) | ✓ (`imports:`) | ✓ (Java composition) |
 | Graph rules | ✗ (via cross-surface) | ✓ (`rules:`) | ✓ (`@GraphRule`) |
 | Graph invariants | ✗ (via cross-surface) | ✓ (`invariants:`) | ✓ (`@GraphInvariant`) |
-| Fault policies | ✗ (via cross-surface) | ✓ (`faultPolicy:`) | ✓ (`@FaultPolicyDef`) |
+| Fault policies | ✗ (via Java annotation or CDI bean) | ✓ (`faultPolicy:`) | ✓ (`@FaultPolicyDef`) |
 | Human gating | ✓ | ✓ | ✓ |
 | Lifecycle hooks | ✓ | ✓ | ✗ |
 
@@ -182,19 +182,26 @@ are captured via stderr.
 **Prerequisite:** Node.js 20+ and `tsx` (or `ts-node`) on PATH. Validated
 at Quarkus build time — clear error if missing.
 
-### 4.4 CDI Integration
+### 4.4 Build-Time Instantiation
+
+The `TsDesiredStateProcessor` instantiates the executor directly at
+build time — CDI beans are not available during Quarkus augmentation.
+This follows the same pattern as `YamlDesiredStateProcessor`, which
+creates its `ObjectMapper` directly rather than via CDI injection.
 
 ```java
-@DefaultBean @ApplicationScoped
-public class DefaultTsExecutor implements TsExecutor {
-    // Tries TsjTsExecutor first. If TSJ is not on classpath,
-    // falls back to NodeTsExecutor.
+// In TsDesiredStateProcessor @BuildStep method:
+TsExecutor executor;
+try {
+    executor = new TsjTsExecutor();
+} catch (NoClassDefFoundError e) {
+    executor = new NodeTsExecutor();
 }
 ```
 
 `TsjTsExecutor` is classpath-activated — present only when the TSJ
 dependency is included. `NodeTsExecutor` is always available as fallback.
-CDI priority ensures TSJ wins when both are present.
+The classpath check determines which implementation is used.
 
 ## 5. TS SDK (`@casehub/desiredstate`)
 
@@ -210,7 +217,7 @@ CDI priority ensures TSJ wins when both are present.
 └── tsconfig.json
 ```
 
-### 5.2 Core API — `defineGraph()`
+### 5.2 Core API — `defineGraph()` and `node()`
 
 ```typescript
 export function defineGraph(def: GraphDef): GraphEnvelope {
@@ -219,6 +226,14 @@ export function defineGraph(def: GraphDef): GraphEnvelope {
 
 export function defineLifecycle(def: LifecycleDef): LifecycleEnvelope {
     return { kind: 'lifecycle', ...def };
+}
+
+export function node<T extends keyof NodeTypeMap>(
+    type: T,
+    spec: NodeTypeMap[T],
+    opts?: { dependsOn?: DependencyRef[]; humanGating?: HumanGating; hooks?: NodeHooks }
+): NodeDef {
+    return { type, spec, ...opts } as NodeDef;
 }
 ```
 
@@ -242,7 +257,7 @@ export type NodeDef = {
     }
 }[keyof NodeTypeMap];
 
-export type DependencyRef = string | { node: string; optional: boolean };
+export type DependencyRef = string;
 
 export type HumanGating = 'NONE' | 'PROVISION_ONLY' | 'DEPROVISION_ONLY' | 'ALL';
 
@@ -262,19 +277,17 @@ export type HookStep =
     | { wait: WaitStep };
 
 export interface VerifyStep {
-    condition: string;
-    timeout?: string;
-    message?: string;
+    url: string;
+    timeout?: number;
 }
 
 export interface NotifyStep {
-    sink: string;
-    event: string;
-    data?: Record<string, unknown>;
+    channel: string;
+    message: string;
 }
 
 export interface WaitStep {
-    duration: string;
+    seconds: number;
 }
 ```
 
@@ -354,8 +367,6 @@ format into the wire format:
 2. **Dependencies:** Collects `dependsOn` from each node and merges with
    top-level `dependencies`. `dependsOn: ['csv-source']` on node
    `transformer` becomes `{ from: 'transformer', to: 'csv-source' }`.
-   Optional deps (`{ node: 'x', optional: true }`) are expanded with
-   the `optional` flag preserved.
 3. **Stripping:** `dependsOn` is removed from each node in the output
    (it's been promoted to the `dependencies` array).
 
@@ -431,7 +442,7 @@ envelope consumed by `TsDesiredStateProcessor`.
 | `namespace` | `namespace` | Direct |
 | `name` | `name` | Direct |
 | `nodes[].id` | `NodeDescriptor.InlineNode.id` | All TS nodes are inline |
-| `nodes[].type` | Resolved via `NodeSpecRegistry` | Type string → spec class |
+| `nodes[].type` | `NodeDescriptor.InlineNode.specClassName` | Looked up via `typeRegistry.get(type)` — the Jandex-built `Map<String, String>` (type string → spec class name), same as `YamlDesiredStateProcessor.toGraphDescriptor()` |
 | `nodes[].spec` | `NodeDescriptor.InlineNode.specValues` | Map<String, Object> |
 | `nodes[].humanGating` | `NodeDescriptor.InlineNode.humanGating` | Enum mapping |
 | `dependencies[]` | `DependencyDescriptor` | Direct |
@@ -479,12 +490,56 @@ After parsing the JSON envelope:
    cross-phase dependency references resolve (same rules as YAML §6.5)
 7. **Hook validation** — same rules as YAML (#121)
 
-### 7.4 Build Items
+### 7.4 Build Items and Cross-Surface Rule Consumption
+
+The processor's `@BuildStep` method signature mirrors `YamlDesiredStateProcessor.discoverYamlGraphs()`:
+
+```java
+@BuildStep
+@Record(ExecutionTime.RUNTIME_INIT)
+void discoverTsGraphs(CombinedIndexBuildItem indexBuildItem,
+                      TsGraphRecorder recorder,
+                      BuildProducer<SyntheticBeanBuildItem> syntheticBeans,
+                      BuildProducer<DesiredStateGraphBuildItem> graphItems,
+                      List<AdditionalRulesBuildItem> additionalRuleItems) {
+    // ...
+}
+```
 
 The processor produces:
 - `DesiredStateGraphBuildItem` with `source: "ts:<fileName>"` — feeds
   `CrossSurfaceRuleResolutionStep` and cross-surface duplicate detection
 - `SyntheticBeanBuildItem` for `GoalCompiler<Void>` — same pattern as YAML
+
+**Cross-surface rule consumption:** For each TS graph, the processor
+finds matching `AdditionalRulesBuildItem` by namespace+name and passes
+the matched rules/invariants to `TsGraphRecorder`:
+
+```java
+List<GraphRuleDescriptor> crossSurfaceRules = List.of();
+List<GraphInvariantDescriptor> crossSurfaceInvariants = List.of();
+for (var additional : additionalRuleItems) {
+    if (additional.namespace().equals(ns) && additional.name().equals(name)) {
+        crossSurfaceRules = additional.rules();
+        crossSurfaceInvariants = additional.invariants();
+        break;
+    }
+}
+
+if (isLifecycle) {
+    compiler = recorder.createTsLifecycleGoalCompiler(
+            envelope, typeRegistry, invariants);
+} else {
+    compiler = recorder.createTsGoalCompiler(
+            descriptor, typeRegistry, invariants,
+            crossSurfaceRules, crossSurfaceInvariants);
+}
+```
+
+Note: cross-surface rules/invariants flow into single-graph compilers
+only. Lifecycle compilers do not currently receive them — this matches
+the existing YAML behavior where `createYamlLifecycleGoalCompiler()`
+also does not accept cross-surface parameters. See §7.6 for details.
 
 ### 7.5 Cross-Surface Rule Resolution
 
@@ -501,6 +556,96 @@ if (graph.source().startsWith("annotation:")) { continue; }
 This broadens the filter to include both `yaml:*` and `ts:*` sources
 (and any future surfaces). Annotation graphs are excluded because their
 rules are already resolved inline by `DesiredStateAnnotationsProcessor`.
+
+### 7.6 TsGraphRecorder
+
+`TsGraphRecorder` is a Quarkus `@Recorder` (same pattern as
+`YamlGraphRecorder`) that creates `GoalCompiler` closures.
+
+#### Single-graph GoalCompiler — `createTsGoalCompiler()`
+
+```java
+@Recorder
+public class TsGraphRecorder {
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public RuntimeValue<GoalCompiler> createTsGoalCompiler(
+            GraphDescriptor descriptor,
+            Map<String, String> typeRegistryMap,
+            List<ResolvedInvariant> invariants,
+            List<GraphRuleDescriptor> crossSurfaceRuleDescriptors,
+            List<GraphInvariantDescriptor> crossSurfaceInvariantDescriptors) {
+
+        ObjectMapper mapper = new ObjectMapper();
+
+        return new RuntimeValue<>((GoalCompiler) (goals, factory) -> {
+            // 1. Materialize nodes: resolve specClassName via typeRegistry,
+            //    deserialize specValues via ObjectMapper.convertValue()
+            // 2. Materialize dependencies: DependencyDescriptor → Dependency
+            // 3. Build graph via factory.of(nodes, deps)
+            // 4. Evaluate cross-surface rules (if any)
+            // 5. Validate invariants (inline + cross-surface)
+            // 6. Return CompilationResult.single(graph)
+        });
+    }
+}
+```
+
+The GoalCompiler closure:
+1. Converts `NodeDescriptor.InlineNode` → `DesiredNode` using
+   `typeRegistryMap` for spec class resolution and `ObjectMapper` for
+   spec deserialization — identical to `YamlGraphRecorder`
+2. Converts `DependencyDescriptor` → `Dependency`
+3. Evaluates cross-surface rules via `GraphRuleEngine` (if any
+   `crossSurfaceRuleDescriptors` were matched)
+4. Validates invariants via `GraphInvariantEngine` (inline invariants +
+   cross-surface invariants merged)
+5. Returns `CompilationResult.single(graph)`
+
+TS does not need `VariableResolver` (no YAML `${var}` syntax), `when:`
+conditional exclusion, `forEach:` expansion, or module expansion. These
+are YAML-specific concerns handled by native TS constructs at graph
+construction time.
+
+#### Lifecycle GoalCompiler — `createTsLifecycleGoalCompiler()`
+
+```java
+public RuntimeValue<GoalCompiler> createTsLifecycleGoalCompiler(
+        TsLifecycleEnvelope envelope,
+        Map<String, String> typeRegistryMap,
+        List<ResolvedInvariant> invariants) { ... }
+```
+
+Lifecycle carry-forward semantics (matching `YamlGraphRecorder.createYamlLifecycleGoalCompiler()`):
+
+1. **Phase iteration:** Process phases in declared order
+2. **Node materialization:** For each phase, materialize declared nodes
+   from the envelope (type registry lookup + spec deserialization)
+3. **Carry-forward merge:** Merge carry-forward nodes from previous
+   phases into the current phase's graph. Phase-declared nodes override
+   carry-forward nodes with the same ID
+4. **Dependency carry-forward:** Carry forward dependencies from previous
+   phases only when both endpoints (from, to) exist in the merged graph
+   AND the `from` node is a carry-forward node (not re-declared in this
+   phase)
+5. **Per-phase invariant validation:** Validate invariants against the
+   merged phase graph — `GraphInvariantEngine.validate(phaseGraph, invariants)`
+6. **Completion condition resolution:** Map `allPresent`, `never`, or
+   `{ bean: "name" }` to `CompletionCondition`
+7. **State update:** After processing each phase, update carry-forward
+   state: `carryForwardNodes = phaseGraph.nodes()`,
+   `carryForwardDeps = phaseGraph.dependencies()`
+8. **Result:** Return `CompilationResult.lifecycle(phases)`
+
+The TS lifecycle compiler is simpler than YAML's because it does not
+need `forEach:` expansion or `when:` conditional exclusion per phase —
+these are handled by native TS at graph construction time.
+
+**Cross-surface rules for lifecycle:** Currently not supported — matching
+YAML's `createYamlLifecycleGoalCompiler()` which also does not receive
+cross-surface rule/invariant parameters. Adding cross-surface support
+for lifecycle graphs is tracked as a separate concern (applies to both
+YAML and TS surfaces).
 
 ## 8. Type Generation Pipeline
 
@@ -559,8 +704,7 @@ Side-by-side companion to `examples/pipeline-yaml/`.
 
 ```typescript
 // examples/pipeline-ts/src/medallion-pipeline.ts
-import { defineGraph } from '@casehub/desiredstate';
-import type { DataSourceSpec, TransformerSpec, SinkSpec } from '@casehub/desiredstate/generated';
+import { defineGraph, node } from '@casehub/desiredstate';
 
 const regions = ['us-east', 'eu-west', 'ap-south'];
 
@@ -571,87 +715,78 @@ export default defineGraph({
         // Bronze tier — one source per region (programmatic stamping)
         ...Object.fromEntries(regions.map(region => [
             `source-${region}`,
-            {
-                type: 'data-source' as const,
-                spec: {
-                    uri: `s3://${region}/customers.csv`,
-                    format: 'CSV' as const,
-                    batchSize: 1000,
-                },
-            },
+            node('data-source', {
+                uri: `s3://${region}/customers.csv`,
+                format: 'CSV',
+                batchSize: 1000,
+            }),
         ])),
 
         // Silver tier — schema validation
-        'csv-ingest': {
-            type: 'transformer' as const,
-            dependsOn: regions.map(r => `source-${r}`),
-            spec: {
-                operation: 'VALIDATE' as const,
-            },
-        },
+        'csv-ingest': node('transformer', {
+            operation: 'VALIDATE',
+        }, { dependsOn: regions.map(r => `source-${r}`) }),
 
         // Gold tier — warehouse sink
-        'warehouse-sink': {
-            type: 'sink' as const,
-            dependsOn: ['csv-ingest'],
-            humanGating: 'PROVISION_ONLY' as const,
-            spec: {
-                target: 'warehouse',
-                writeMode: 'APPEND' as const,
-            },
-        },
+        'warehouse-sink': node('sink', {
+            target: 'warehouse',
+            writeMode: 'APPEND',
+        }, { dependsOn: ['csv-ingest'], humanGating: 'PROVISION_ONLY' }),
     },
 });
 ```
 
 **What this demonstrates:**
+- `node()` helper infers literal types — no `as const` needed
 - `regions.map()` replaces YAML's `forEach:` — native TS iteration
 - `Object.fromEntries()` + spread builds the node map programmatically
-- Type narrowing on `'data-source' as const` → spec autocompletes correctly
+- `node('data-source', { ... })` → TypeScript infers `T = 'data-source'`,
+  narrowing `spec` to `DataSourceSpec` with full autocomplete
 - `dependsOn: regions.map(r => ...)` generates dynamic dependency lists
 - `humanGating` on the sink — same feature as YAML/annotations
 
 **What it does NOT include:**
-- No `rules:` or `invariants:` — these come from a companion YAML file
-  or Java `@GraphRule` class via cross-surface resolution
-- No `faultPolicy:` — same, declared in YAML or annotations
+- No `rules:` or `invariants:` — these come from a Java `@GraphRule`
+  class via cross-surface resolution
+- No `faultPolicy:` — declared via Java annotation classes or CDI beans
 
-The companion YAML file `ensure-monitoring.yaml` provides the monitoring
-rule that fires against the TS-declared graph:
+The companion Java `@GraphRule` class provides the monitoring rule that
+fires against the TS-declared graph:
 
-```yaml
-desiredState:
-  namespace: pipeline
-  name: monitoring-rules
+```java
+@GraphRule(graph = {"pipeline:*"})
+public class EnsureMonitoringRule {
+    @RuleMatch       NodeHandle sink = NodeHandle.ofType("sink");
+    @RuleNotExists   NodeHandle guard = NodeHandle.ofType("monitor")
+                                           .of(sink).direction(DEPENDENTS);
 
-rules:
-  ensure-monitoring:
-    graph: ["pipeline:*"]
-    match:
-      sink: { type: sink }
-    notExists:
-      guard: { type: monitor, of: sink, direction: dependents }
-    actions:
-      - addNode:
-          id: "monitor-${match.sink.flatId}"
-          type: monitor
-          spec:
-            target: "${match.sink.id}"
-      - addDependency:
-          from: "monitor-${match.sink.flatId}"
-          to: "${match.sink.id}"
+    @RuleAction
+    List<GraphMutation> fire() {
+        return List.of(
+            GraphMutation.addNode("monitor-" + sink.flatId(),
+                new MonitorSpec(sink.id())),
+            GraphMutation.addDependency(
+                "monitor-" + sink.flatId(), sink.id()));
+    }
+}
 ```
 
-The `graph: ["pipeline:*"]` pattern matches the TS-declared graph
-(`pipeline:medallion`) via `GraphPatternMatcher`. The rule fires at
-`GoalCompiler.compile()` time after `CrossSurfaceRuleResolutionStep`
-delivers it to the TS graph's `GoalCompiler`.
+The `graph = {"pipeline:*"}` pattern matches the TS-declared graph
+(`pipeline:medallion`) via `GraphPatternMatcher`. The annotation
+processor produces a `StandaloneRuleBuildItem`, which
+`CrossSurfaceRuleResolutionStep` delivers to the TS graph's
+`GoalCompiler` via `AdditionalRulesBuildItem`.
+
+**YAML standalone rules:** YAML rules with `graph:` patterns
+(e.g., `graph: ["pipeline:*"]`) will also work as cross-surface rules
+once the YAML processor produces `StandaloneRuleBuildItem` for them —
+this is part of #116 YAML language extensions.
 
 ## 10. Lifecycle Phase Example
 
 ```typescript
 // multi-phase-deployment.ts
-import { defineLifecycle } from '@casehub/desiredstate';
+import { defineLifecycle, node } from '@casehub/desiredstate';
 
 export default defineLifecycle({
     namespace: 'webapp',
@@ -661,47 +796,49 @@ export default defineLifecycle({
             id: 'infrastructure',
             completionCondition: 'allPresent',
             nodes: {
-                'database': {
-                    type: 'db' as const,
-                    spec: { engine: 'postgres', version: '15' },
-                },
-                'cache': {
-                    type: 'cache' as const,
-                    spec: { engine: 'redis' },
-                },
+                'database': node('db', { engine: 'postgres', version: '15' }),
+                'cache': node('cache', { engine: 'redis' }),
             },
         },
         {
             id: 'application',
             completionCondition: 'allPresent',
             nodes: {
-                'api-server': {
-                    type: 'app' as const,
-                    dependsOn: ['database'],
-                    spec: { image: 'api:latest' },
-                },
+                'api-server': node('app', { image: 'api:latest' },
+                    { dependsOn: ['database'] }),
             },
         },
         {
             id: 'observability',
             completionCondition: 'never',
             nodes: {
-                'monitor': {
-                    type: 'monitor' as const,
-                    dependsOn: ['api-server'],
-                    spec: { target: 'api-server' },
-                },
+                'monitor': node('monitor', { target: 'api-server' },
+                    { dependsOn: ['api-server'] }),
             },
         },
     ],
 });
 ```
 
-Cross-phase references (`dependsOn: ['database']` in the application phase)
-are handled the same way as YAML lifecycle phases — earlier phase nodes are
-carried forward into later phases' graphs. The `TsDesiredStateProcessor`
-implements the same carry-forward injection as
-`YamlGraphRecorder.createYamlLifecycleGoalCompiler()`.
+**Cross-phase carry-forward:** `dependsOn: ['database']` in the
+application phase references a node from the infrastructure phase.
+The `TsGraphRecorder.createTsLifecycleGoalCompiler()` implements
+carry-forward semantics (§7.6):
+- Infrastructure phase nodes (`database`, `cache`) carry forward into
+  the application phase graph
+- Application phase nodes (`api-server` + carried `database`, `cache`)
+  carry forward into the observability phase
+- Phase-declared nodes override carry-forward nodes with the same ID
+- Dependencies carry forward only when both endpoints exist in the
+  merged graph
+
+**Per-phase invariant validation:** Invariants (inline or cross-surface)
+are validated against each phase's merged graph independently. An
+invariant that requires a `monitor` dependent on every `sink` would pass
+in the observability phase (where monitors exist) but could fail in
+earlier phases if the invariant applies globally. This matches
+`YamlGraphRecorder.createYamlLifecycleGoalCompiler()`'s per-phase
+`GraphInvariantEngine.validate()` call.
 
 ## 11. Testing Strategy
 
@@ -762,12 +899,23 @@ serialisation format. A TS-authored graph could be rendered in the editor
 by serializing the JSON envelope to YAML — but this is a visual editor
 concern, not a TS DSL concern.
 
-**`as const` ergonomics:** The example shows `'data-source' as const`
-to trigger discriminated union narrowing. This is a TypeScript ergonomic
-wart — without `as const`, the `type` field is widened to `string` and
-spec narrowing doesn't fire. Potential solutions: a TypeScript 5.x
-`satisfies` pattern, or a helper function that infers literal types.
-Investigate during SDK development.
+**Fault policy declaration for TS graphs:** TS-declared graphs acquire
+fault policies via Java annotation classes (`@FaultPolicyDef`) or custom
+CDI `FaultPolicy` beans. The annotation processor registers these
+without `@DesiredStateQualifier`, making them globally available to all
+reconciliation loops including TS-declared graphs. Declarative companion
+fault policies (YAML file targeting a TS graph) are not currently
+supported — the YAML processor requires a full graph declaration and
+registers policies with a qualifier scoped to that graph. A cross-surface
+fault policy resolution mechanism (analogous to
+`CrossSurfaceRuleResolutionStep` for rules) would address this gap.
+
+**Cross-surface rules for lifecycle phases:** Neither YAML nor TS
+lifecycle compilers currently receive cross-surface rules/invariants.
+`YamlGraphRecorder.createYamlLifecycleGoalCompiler()` only evaluates
+inline rules and invariants per phase. Adding cross-surface rule support
+to lifecycle compilers is a cross-surface concern that should be
+addressed for both YAML and TS simultaneously.
 
 **Pre-compiled JSON support:** The processor supports `.ds.json` files
 for CI/CD pipelines where TS compilation happens before Maven. The
@@ -784,7 +932,7 @@ compilation tooling (npm scripts, CLI wrapper) needs its own design.
 - `runtime/.../LifecycleManager.java` — phase orchestration
 - `platform/yaml-core/` — shared YAML infrastructure (pattern for ts-core)
 - Research doc `docs/research/2026-08-27-operator-declaration-language-research.md` — §5.2 TypeScript DSL
-- YAML language extensions spec `specs/issue-124-cross-surface-rules/2026-08-27-yaml-language-extensions-design.md`
+- YAML language extensions spec `docs/specs/issue-116-yaml-language-design/2026-08-27-yaml-language-extensions-design.md`
 - #116 — operator-first declaration language
 - #122 — this issue
 - #124 — cross-surface rule resolution
