@@ -332,7 +332,7 @@ When the operator types `type: 'data-source'`, TypeScript narrows `spec`
 to `DataSourceSpec` — autocomplete shows `uri`, `format`, `batchSize`.
 Wrong fields produce compile errors.
 
-### 5.6 Dependencies
+### 5.6 Dependencies and Envelope Transformation
 
 Dependencies can be declared inline on nodes via `dependsOn` (producing
 `DependencyDef` entries in the envelope), or explicitly via the top-level
@@ -346,9 +346,21 @@ export interface DependencyDef {
 }
 ```
 
-The `dependsOn` shorthand on `NodeDef` is syntactic sugar — the SDK expands
-`dependsOn: ['csv-source']` on node `transformer` into
-`{ from: 'transformer', to: 'csv-source' }` in the envelope.
+**SDK → Envelope transformation:** `defineGraph()` transforms the authoring
+format into the wire format:
+
+1. **Nodes:** `Record<string, NodeDef>` (map keyed by ID) → array of objects
+   with explicit `id` field. The map key becomes the `id`.
+2. **Dependencies:** Collects `dependsOn` from each node and merges with
+   top-level `dependencies`. `dependsOn: ['csv-source']` on node
+   `transformer` becomes `{ from: 'transformer', to: 'csv-source' }`.
+   Optional deps (`{ node: 'x', optional: true }`) are expanded with
+   the `optional` flag preserved.
+3. **Stripping:** `dependsOn` is removed from each node in the output
+   (it's been promoted to the `dependencies` array).
+
+This keeps the authoring format ergonomic (map keys as IDs, inline deps)
+while the wire format is flat and easy to parse on the Java side.
 
 ## 6. JSON Envelope Schema
 
