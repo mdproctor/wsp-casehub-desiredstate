@@ -16,18 +16,17 @@
 
 ## D2: Integration path
 
-**Choice:** External compilation — TS executes in its native runtime (Node.js, Deno, or Bun), emits GraphDescriptor-compatible JSON, consumed at Quarkus build time via classpath scan at `META-INF/desiredstate/`.
+**Choice:** SPI-based TS execution — `TsExecutor` SPI with two implementations: `TsjTsExecutor` (TSJ/ts2jvm, JVM-native, default — the thing to evaluate) and `NodeTsExecutor` (Node.js subprocess fallback). Both return the same JSON envelope. Both build-time and runtime evaluation supported — build-time via Quarkus extension discovering `.ts` on classpath, runtime via on-demand `TsExecutor.evaluate()` for dynamic/LLM-generated declarations.
 **Alternatives:**
-- TSJ (ts2jvm) — TypeScript compiled to JVM bytecode. Experimental, single-maintainer, no visible community. Original choice — revised.
-- GraalJS + esbuild transpile — Oracle-maintained JS engine, mature. Indirection is a single fast transpilation step, not a fundamental limitation. Valid for JVM-embedded use case if that need materialises.
+- External compilation only — TS runs in Node.js, emits JSON, consumed at build time. No JVM-embedded TS. Review-recommended, overly conservative for pre-release evaluation.
+- TSJ only (no fallback) — single implementation, no abstraction. Risk: if TSJ fails, the entire TS surface is blocked.
+- GraalJS + esbuild transpile — Oracle-maintained JS engine, mature. Valid alternative implementation behind the same SPI.
 - Javet (V8 binding) — full Node.js but heavyweight JNI dependency
-- REST endpoint — TS compiles offline, posts JSON to Quarkus app
-- Build-time classpath only with JVM-embedded runtime — requires a validated JVM-embedded TS engine
-- Kotlin Script as DSL host — native JVM, type-safe builders (Gradle pattern), IntelliJ support. Valid alternative but serves the JVM developer persona, which already has the Java annotation surface. TS targets DevOps engineers who know Pulumi/CDK and benefits from LLM training data coverage.
-**Rationale:** The YAML surface demonstrates the pattern: files on classpath processed at build time by `YamlDesiredStateProcessor`. A `TsDesiredStateProcessor` follows the identical pattern — reads JSON, produces `GraphDescriptor`, feeds `GoalCompiler`. TS in its native runtime has full ecosystem access (npm packages, native TS toolchain, IDE support). No experimental JVM dependency. The compilation boundary is clean — the TS toolchain is a build prerequisite, not a runtime dependency.
-**Trade-offs:** No runtime TS evaluation. LLM-generated TS requires a build cycle. Runtime evaluation was the only justification for JVM-embedded execution — but that use case is undesigned (no specification for how dynamic TS enters the JVM, what security boundary applies, or how it interacts with the reconciliation loop). Deferring runtime evaluation until the use case is validated is the right call.
-**Sources:** User input (TSJ identified), YamlDesiredStateProcessor pattern, research doc §5.2
-**Exploration:** quick → revised via review (R1-02, R1-04, R1-09)
+- Kotlin Script as DSL host — serves JVM developer persona which already has Java annotations
+**Rationale:** Pre-release platform — the goal is to evaluate TSJ, not to avoid risk. The SPI abstraction isolates the evaluation: if TSJ works, we get JVM-native TS execution (fast, no external process, runtime evaluation for LLM-generated graphs). If TSJ doesn't work, the SPI delegates to a Node.js subprocess that returns the same JSON. The consumer (`TsDesiredStateProcessor`) doesn't know or care which implementation runs. The SPI boundary means switching is trivial — no downstream changes.
+**Trade-offs:** TSJ is experimental — may have gaps in ES module support, npm package resolution, or TypeScript version compatibility. The SPI fallback to Node.js ensures the TS surface is never blocked by TSJ limitations. Two implementations to maintain, but the Node.js one is simple (subprocess + JSON parse).
+**Sources:** User input (TSJ library identified, SPI + fallback design), YamlDesiredStateProcessor pattern, research doc §5.2
+**Exploration:** quick → revised via review (R1-02, R1-04, R1-09) → re-revised (user pushback: pre-release evaluation, SPI abstraction)
 **Status:** revised
 
 ## D3: DSL style
