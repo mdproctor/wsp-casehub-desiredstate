@@ -217,15 +217,82 @@ The classpath check determines which implementation is used.
 └── tsconfig.json
 ```
 
-### 5.2 Core API — `defineGraph()` and `node()`
+### 5.2 Core API — `defineGraph()`, `defineLifecycle()`, and `node()`
 
 ```typescript
+export interface GraphEnvelope {
+    kind: 'single';
+    namespace: string;
+    name: string;
+    nodes: EnvelopeNode[];
+    dependencies: DependencyDef[];
+}
+
+export interface LifecycleEnvelope {
+    kind: 'lifecycle';
+    namespace: string;
+    name: string;
+    phases: EnvelopePhase[];
+}
+
+interface EnvelopeNode {
+    id: string;
+    type: string;
+    spec: Record<string, unknown>;
+    humanGating?: HumanGating;
+    hooks?: NodeHooks;
+}
+
+interface EnvelopePhase {
+    id: string;
+    completionCondition: CompletionCondition;
+    nodes: EnvelopeNode[];
+    dependencies: DependencyDef[];
+}
+
 export function defineGraph(def: GraphDef): GraphEnvelope {
-    return { kind: 'single', ...def };
+    const { nodes, dependencies } = transformNodes(def.nodes);
+    return {
+        kind: 'single',
+        namespace: def.namespace,
+        name: def.name,
+        nodes,
+        dependencies: [...dependencies, ...(def.dependencies ?? [])],
+    };
 }
 
 export function defineLifecycle(def: LifecycleDef): LifecycleEnvelope {
-    return { kind: 'lifecycle', ...def };
+    return {
+        kind: 'lifecycle',
+        namespace: def.namespace,
+        name: def.name,
+        phases: def.phases.map(phase => {
+            const { nodes, dependencies } = transformNodes(phase.nodes);
+            return {
+                id: phase.id,
+                completionCondition: phase.completionCondition,
+                nodes,
+                dependencies: [...dependencies, ...(phase.dependencies ?? [])],
+            };
+        }),
+    };
+}
+
+function transformNodes(nodeMap: Record<string, NodeDef>): {
+    nodes: EnvelopeNode[]; dependencies: DependencyDef[];
+} {
+    const nodes: EnvelopeNode[] = [];
+    const dependencies: DependencyDef[] = [];
+    for (const [id, def] of Object.entries(nodeMap)) {
+        const { dependsOn, ...rest } = def as NodeDef & { dependsOn?: string[] };
+        nodes.push({ id, ...rest });
+        if (dependsOn) {
+            for (const dep of dependsOn) {
+                dependencies.push({ from: id, to: dep });
+            }
+        }
+    }
+    return { nodes, dependencies };
 }
 
 export function node<T extends keyof NodeTypeMap>(
@@ -468,8 +535,8 @@ CI/CD pipelines where TS compilation happens before the Maven build.
 
 ### 7.2 Evaluation
 
-For `.ts` files: inject `TsExecutor` (from `ts-core`), call
-`evaluate(tsSource)`, parse the resulting JSON envelope.
+For `.ts` files: instantiate `TsExecutor` (from `ts-core`, see §4.4),
+call `evaluate(tsSource)`, parse the resulting JSON envelope.
 
 For `.ds.json` files: parse directly — no TS evaluation needed.
 
@@ -479,15 +546,18 @@ After parsing the JSON envelope:
 
 1. **Node types** — validate each node's `type` against the `NodeSpecRegistry`
    (same Jandex scan as YAML)
-2. **Dependency references** — validate `from`/`to` refer to declared nodes
+2. **Dependency references** — for single graphs, validate `from`/`to`
+   refer to declared nodes. For lifecycle graphs, skip this check —
+   cross-phase references (e.g., `dependsOn: ['database']` in a later
+   phase) are resolved at compile time via carry-forward (§7.6)
 3. **Cycle detection** — same algorithm as `YamlDesiredStateProcessor`
 4. **Spec deserialization** — `ObjectMapper.convertValue()` each node's spec
    map into the typed `NodeSpec` class. Deserialization errors produce
    build-time failures with TS source context
 5. **Cross-surface namespace collision** — via `DesiredStateGraphBuildItem`
    (existing infrastructure)
-6. **Lifecycle validation** — phase IDs unique, completion conditions valid,
-   cross-phase dependency references resolve (same rules as YAML §6.5)
+6. **Lifecycle validation** — phase IDs unique, completion conditions
+   valid (same rules as `YamlDesiredStateProcessor.validateLifecycle()`)
 7. **Hook validation** — same rules as YAML (#121)
 
 ### 7.4 Build Items and Cross-Surface Rule Consumption
