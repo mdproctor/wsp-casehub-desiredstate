@@ -2,16 +2,16 @@
 
 ## D1: Scope
 
-**Choice:** Programmatic graph construction + typed specs + LLM generation target. Rules, invariants, and fault policies are NOT in scope — they remain in YAML/Java surfaces and are delivered to TS-declared graphs via cross-surface resolution (#124).
+**Choice:** Programmatic graph construction + typed specs + lifecycle phases + LLM generation target. Rules, invariants, and fault policies are NOT in scope — they remain in YAML/Java surfaces and are delivered to TS-declared graphs via cross-surface resolution (#124) after the `CrossSurfaceRuleResolutionStep` source filter is broadened (currently YAML-only, see note).
 **Alternatives:**
 - Full parity — reimplements all YAML declarative features (forEach, when, rules, invariants, fault policies, lifecycle phases, modules) in TS syntax
 - Programmatic generation only — no rules/invariants even via cross-surface
 - LLM generation only — .d.ts as context, SDK as generation target
 - TS as meta-generator — emits YAML fed into existing YAML pipeline
-**Rationale:** TS's value proposition is programmatic graph construction with type-safe specs — the capability YAML can't express (D6). forEach/when/modules have natural TS equivalents (loops, conditionals, functions/imports) that are more powerful than DSL-level reimplementations. Rules and invariants are declarative concerns — they belong in YAML or Java annotations. `CrossSurfaceRuleResolutionStep` already delivers standalone `@GraphRule`/`@GraphInvariant` classes to non-annotation graphs via `GraphPatternMatcher`. The same mechanism applies to TS-declared graphs. Full parity is scope bloat: reimplementing declarative features in an imperative language contradicts D6's positioning that "YAML is simpler and sufficient for static declarations."
-**Trade-offs:** TS authors who need graph rules must declare them in YAML or Java annotations. This is the intended boundary — declarative concerns in declarative surfaces.
-**Sources:** Issue #122, research doc §5.2, CrossSurfaceRuleResolutionStep, GraphPatternMatcher
-**Exploration:** quick → revised via review (R1-03)
+**Rationale:** TS's value proposition is programmatic graph construction with type-safe specs — the capability YAML can't express (D6). forEach/when/modules have natural TS equivalents (loops, conditionals, functions/imports) that are more powerful than DSL-level reimplementations. Rules and invariants are declarative concerns — they belong in YAML or Java annotations. `CrossSurfaceRuleResolutionStep` delivers standalone `@GraphRule`/`@GraphInvariant` classes to non-annotation graphs via `GraphPatternMatcher`; extending it to TS sources requires changing the source filter from `graph.source().startsWith("yaml:")` to exclude annotation sources (`!graph.source().startsWith("annotation:")`), a trivial but required change. Lifecycle phases are in scope because they are structural graph construction, not declarative rules — TS handles carry-forward naturally via shared variable references between phase graphs, and multi-phase deployments are a core value proposition (research doc §4.3).
+**Trade-offs:** TS authors who need graph rules must declare them in YAML or Java annotations. This is the intended boundary — declarative concerns in declarative surfaces. Lifecycle phases ARE in scope — excluding them would limit TS to `CompilationResult.single()` graphs, a significant limitation for the multi-phase deployment use case.
+**Sources:** Issue #122, research doc §5.2, CrossSurfaceRuleResolutionStep (line 31 — source filter), GraphPatternMatcher, CompilationResult sealed interface
+**Exploration:** quick → revised via review (R1-03, R2-01, R2-02)
 **Status:** revised
 
 ## D2: Integration path
@@ -84,12 +84,13 @@
 
 ## D7: Compilation target
 
-**Choice:** TS compiles to GraphDescriptor-compatible JSON (same IR as YAML and annotations), consumed by a `TsDesiredStateProcessor` build step. Not to YAML.
+**Choice:** TS compiles to a JSON envelope containing GraphDescriptor-compatible data, consumed by a `TsDesiredStateProcessor` build step. Not to YAML. The envelope supports two variants: `"kind":"single"` (wrapping one GraphDescriptor) and `"kind":"lifecycle"` (wrapping multiple phase entries, each with an id, completionCondition, and GraphDescriptor). This parallels the YAML surface's branching between `createYamlGoalCompiler` and `createYamlLifecycleGoalCompiler`.
 **Alternatives:**
 - TS emits YAML → feeds existing `YamlDesiredStateProcessor` — reuses YAML infrastructure but produces YAML error messages for TS authoring errors, loses line-number context, serialises programmatic constructs to YAML strings awkwardly
 - TS emits directly to `DesiredStateGraph` API — bypasses the IR, loses cross-surface rule resolution
-**Rationale:** TS → GraphDescriptor JSON converges at the IR level while keeping source-level concerns separate. A `TsDesiredStateProcessor` build step (parallel to `YamlDesiredStateProcessor`) reads JSON from `META-INF/desiredstate/`, produces `DesiredStateGraphBuildItem` entries. `CrossSurfaceRuleResolutionStep` then matches standalone rules/invariants to TS-declared graphs via `GraphPatternMatcher` — the same mechanism that bridges annotation rules to YAML graphs. The build step is thin: JSON → `GraphDescriptor` → downstream pipeline (GoalCompiler, rule engines, invariant engines) is shared.
-**Trade-offs:** A new build step is needed. But the step is minimal — it deserialises JSON into the same `GraphDescriptor` record the YAML processor produces. All downstream infrastructure is reused.
-**Sources:** YamlDesiredStateProcessor, CrossSurfaceRuleResolutionStep (#124), GraphDescriptor sealed evolution (D11 YAML decisions)
-**Exploration:** surfaced via review (R1-10)
-**Status:** captured
+- TS emits bare GraphDescriptor JSON (no envelope) — simpler but cannot represent `CompilationResult.Lifecycle`; limits TS to single-graph deployments
+**Rationale:** TS → JSON envelope converges at the IR level while keeping source-level concerns separate. A `TsDesiredStateProcessor` build step (parallel to `YamlDesiredStateProcessor`) reads JSON from `META-INF/desiredstate/`, produces `DesiredStateGraphBuildItem` entries. For lifecycle variants, the processor produces a GoalCompiler that returns `CompilationResult.lifecycle()` — the same downstream `LifecycleManager` orchestration used by YAML lifecycle graphs. `CrossSurfaceRuleResolutionStep` then matches standalone rules/invariants to TS-declared graphs via `GraphPatternMatcher` — requiring the source filter broadening noted in D1. The lifecycle data (phase id, completionCondition) lives in the envelope, not in `GraphDescriptor` itself — consistent with how the YAML surface handles lifecycle outside `GraphDescriptor` via `YamlGraph.lifecycle()`.
+**Trade-offs:** A new build step is needed. The step parses JSON into `GraphDescriptor` (for single graphs) or into per-phase `GraphDescriptor` + phase metadata (for lifecycle). All downstream infrastructure (GoalCompiler, rule engines, invariant engines, LifecycleManager) is reused. The envelope format is TS-specific but structurally simple.
+**Sources:** YamlDesiredStateProcessor, YamlGraphRecorder.createYamlLifecycleGoalCompiler(), CrossSurfaceRuleResolutionStep (#124), GraphDescriptor sealed evolution (D11 YAML decisions), CompilationResult sealed interface
+**Exploration:** surfaced via review (R1-10), refined (R2-02)
+**Status:** revised
