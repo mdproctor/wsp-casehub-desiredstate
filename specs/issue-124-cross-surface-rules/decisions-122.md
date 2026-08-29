@@ -93,3 +93,16 @@
 **Sources:** YamlDesiredStateProcessor, YamlGraphRecorder.createYamlLifecycleGoalCompiler(), CrossSurfaceRuleResolutionStep (#124), GraphDescriptor sealed evolution (D11 YAML decisions), CompilationResult sealed interface
 **Exploration:** surfaced via review (R1-10), refined (R2-02)
 **Status:** revised
+
+## D8: Module placement
+
+**Choice:** Split across platform and desiredstate repos, following the `yaml-core` pattern. `casehub-platform/ts-core/` owns the shared TS execution infrastructure (`TsExecutor` SPI, `TsjTsExecutor`, `NodeTsExecutor`, type generation tooling). `casehub-desiredstate/ts-dsl/` owns the domain-specific surface (`TsDesiredStateProcessor` build extension, JSON envelope schema, desiredstate TS SDK package with `defineGraph()` and generated `NodeTypeMap`).
+**Alternatives:**
+- Everything in desiredstate — simpler initially but other repos wanting TS declarations would need to duplicate the executor infrastructure
+- Everything in platform — conflates domain-specific SDK types with shared infrastructure
+- Standalone `casehub-ts-core` repo — unnecessary tier proliferation when `casehub-platform` already hosts `yaml-core`
+**Rationale:** `yaml-core` in `casehub-platform` demonstrates the pattern: shared YAML capabilities (`VariableResolver`, `ForEachExpander`, `Truthiness`) live in platform; desiredstate layers domain logic on top. The TS equivalent follows the same split. Any repo wanting TS-defined configurations gets the executor SPI from `ts-core` and builds its own domain-specific processor.
+**Trade-offs:** Cross-repo implementation — `ts-core` must land in platform before desiredstate's `ts-dsl/` can build against it. Platform release coordination required.
+**Sources:** `casehub-platform/yaml-core/` (existing pattern), platform tier architecture
+**Exploration:** quick
+**Status:** captured
