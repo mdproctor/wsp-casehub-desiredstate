@@ -13,12 +13,5 @@ flyway-next-v: none
 
 ## Queue
 - [x] casehubio/casehub-desiredstate#124 — Issue #124
-- [ ] casehubio/casehub-desiredstate#121 — YAML lifecycle hooks ← active
-  - [x] Batch 1: Model Types
-    - [x] Task 1: LifecycleStep + HookDescriptor + DesiredNode
-  - [ ] Batch 2: Step Executors
-    - [ ] Task 2: LifecycleStepExecutor + three implementations
-    - [ ] Task 3: SimpleTransitionExecutor hook integration
-  - [ ] Batch 3: YAML Wiring
-    - [ ] Task 4: GoalCompiler hook resolution + integration test
-- [ ] casehubio/casehub-desiredstate#122 — TypeScript DSL
+- [x] casehubio/casehub-desiredstate#121 — YAML lifecycle hooks
+- [ ] casehubio/casehub-desiredstate#122 — TypeScript DSL ← active

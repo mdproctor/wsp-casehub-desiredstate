@@ -2,18 +2,18 @@
 
 ## Last Session
 
-Delivered Phase 3 YAML features (#118 forEach, #120 modules), e-commerce tutorials (#125), and cross-surface rule resolution (#124). Started #121 (lifecycle hooks) — Batch 1/3 complete.
-
-**Landed on main this session:**
-- `8f20c00` — forEach cardinality stamping and composable modules (Closes #118, #120)
-- `82446b1` — e-commerce tutorial series (Closes #125)
+Completed #121 (YAML lifecycle hooks) — all 3 batches. Batch 2: `LifecycleStepExecutor` SPI with `DefaultLifecycleStepExecutor` (sealed pattern match for verify/notify/wait), `NotificationSink` SPI, `SimpleTransitionExecutor` hook integration (pre-gates, post-warns). Batch 3: `HookResolver` YAML-to-runtime conversion wired into all DesiredNode construction sites, build-time validation, tutorial-2 payment node demo.
 
 **On branch `issue-124-cross-surface-rules` (covers #124, #121, #122):**
-- #124 cross-surface rules — 3 tasks complete, `Closes #124` in commit
-- #121 lifecycle hooks — Batch 1/3 done (model types: LifecycleStep, HookDescriptor, DesiredNode extension, YamlHooks). Batches 2-3 remain (step executors, SimpleTransitionExecutor integration, YAML wiring)
+- #124 cross-surface rules — complete, `Closes #124` in commit
+- #121 lifecycle hooks — complete, `Closes #121` in commit `55284cf`
 - #122 TypeScript DSL — queued, not started
 
-**Resume:** `work continue` → picks up #121 Batch 2. Plan at `plans/2026-08-29-lifecycle-hooks.md`.
+**Commits this session:**
+- `de3f935` — feat(#121): lifecycle step executors and SimpleTransitionExecutor hook integration
+- `55284cf` — feat(#121): YAML lifecycle hooks — verify, notify, wait
+
+**Resume:** `work continue` → picks up #122 TypeScript DSL. No plan or spec exists yet — brainstorm first.
 
 ## Branch
 
