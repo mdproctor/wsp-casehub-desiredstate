@@ -2,41 +2,46 @@
 
 ## D1: Scope
 
-**Choice:** Full parity + programmatic generation + LLM generation target (all three)
+**Choice:** Programmatic graph construction + typed specs + LLM generation target. Rules, invariants, and fault policies are NOT in scope — they remain in YAML/Java surfaces and are delivered to TS-declared graphs via cross-surface resolution (#124).
 **Alternatives:**
-- Programmatic generation only — targeted complement for YAML gaps
+- Full parity — reimplements all YAML declarative features (forEach, when, rules, invariants, fault policies, lifecycle phases, modules) in TS syntax
+- Programmatic generation only — no rules/invariants even via cross-surface
 - LLM generation only — .d.ts as context, SDK as generation target
-**Rationale:** The TS DSL should be a complete alternative surface. Operators choose based on preference and use case, not capability gaps.
-**Trade-offs:** Largest implementation scope — every YAML feature must have a TS equivalent
-**Sources:** Issue #122, research doc §5.2, YAML language extensions spec §6
-**Exploration:** quick
-**Status:** captured
+- TS as meta-generator — emits YAML fed into existing YAML pipeline
+**Rationale:** TS's value proposition is programmatic graph construction with type-safe specs — the capability YAML can't express (D6). forEach/when/modules have natural TS equivalents (loops, conditionals, functions/imports) that are more powerful than DSL-level reimplementations. Rules and invariants are declarative concerns — they belong in YAML or Java annotations. `CrossSurfaceRuleResolutionStep` already delivers standalone `@GraphRule`/`@GraphInvariant` classes to non-annotation graphs via `GraphPatternMatcher`. The same mechanism applies to TS-declared graphs. Full parity is scope bloat: reimplementing declarative features in an imperative language contradicts D6's positioning that "YAML is simpler and sufficient for static declarations."
+**Trade-offs:** TS authors who need graph rules must declare them in YAML or Java annotations. This is the intended boundary — declarative concerns in declarative surfaces.
+**Sources:** Issue #122, research doc §5.2, CrossSurfaceRuleResolutionStep, GraphPatternMatcher
+**Exploration:** quick → revised via review (R1-03)
+**Status:** revised
 
 ## D2: Integration path
 
-**Choice:** TSJ (ts2jvm) — TypeScript compiled to JVM bytecode, returns JSON. Both build-time and runtime evaluation.
+**Choice:** External compilation — TS executes in its native runtime (Node.js, Deno, or Bun), emits GraphDescriptor-compatible JSON, consumed at Quarkus build time via classpath scan at `META-INF/desiredstate/`.
 **Alternatives:**
-- GraalJS + transpile — mature JS engine but indirect TS support
+- TSJ (ts2jvm) — TypeScript compiled to JVM bytecode. Experimental, single-maintainer, no visible community. Original choice — revised.
+- GraalJS + esbuild transpile — Oracle-maintained JS engine, mature. Indirection is a single fast transpilation step, not a fundamental limitation. Valid for JVM-embedded use case if that need materialises.
 - Javet (V8 binding) — full Node.js but heavyweight JNI dependency
 - REST endpoint — TS compiles offline, posts JSON to Quarkus app
-- Build-time classpath only — .ts files at META-INF, no runtime eval
-**Rationale:** TSJ provides native TS execution on JVM without external toolchain. Build-time for static declarations (classpath .ts files); runtime for dynamic/LLM-generated.
-**Trade-offs:** TSJ maturity — experimental, may have gaps. Fallback to JSON serialization boundary if TSJ proves inadequate.
-**Sources:** User input (TSJ library identified)
-**Exploration:** quick
-**Status:** captured
+- Build-time classpath only with JVM-embedded runtime — requires a validated JVM-embedded TS engine
+- Kotlin Script as DSL host — native JVM, type-safe builders (Gradle pattern), IntelliJ support. Valid alternative but serves the JVM developer persona, which already has the Java annotation surface. TS targets DevOps engineers who know Pulumi/CDK and benefits from LLM training data coverage.
+**Rationale:** The YAML surface demonstrates the pattern: files on classpath processed at build time by `YamlDesiredStateProcessor`. A `TsDesiredStateProcessor` follows the identical pattern — reads JSON, produces `GraphDescriptor`, feeds `GoalCompiler`. TS in its native runtime has full ecosystem access (npm packages, native TS toolchain, IDE support). No experimental JVM dependency. The compilation boundary is clean — the TS toolchain is a build prerequisite, not a runtime dependency.
+**Trade-offs:** No runtime TS evaluation. LLM-generated TS requires a build cycle. Runtime evaluation was the only justification for JVM-embedded execution — but that use case is undesigned (no specification for how dynamic TS enters the JVM, what security boundary applies, or how it interacts with the reconciliation loop). Deferring runtime evaluation until the use case is validated is the right call.
+**Sources:** User input (TSJ identified), YamlDesiredStateProcessor pattern, research doc §5.2
+**Exploration:** quick → revised via review (R1-02, R1-04, R1-09)
+**Status:** revised
 
 ## D3: DSL style
 
-**Choice:** Hybrid — imperative graph construction with native TS (loops, conditionals, functions), declarative pattern-matching API for rules and invariants
+**Choice:** Imperative graph construction only — native TS loops, conditionals, functions, and the typed graph builder API. No declarative sub-DSL for rules or invariants.
 **Alternatives:**
-- Fully imperative — rules/invariants expressed as TS functions
+- Hybrid — imperative graph construction with declarative pattern-matching API for rules/invariants (original choice — revised)
+- Fully imperative — rules/invariants as typed TS functions with `defineRule()` wrapper
 - Fully declarative — mirror YAML's forEach/when/modules as TS DSL concepts
-**Rationale:** TS already has loops/conditionals — re-inventing them as DSL concepts adds complexity without value. But rules/invariants are structural graph concepts (pattern matching, rewriting) — they need a declarative vocabulary, not arbitrary TS functions.
-**Trade-offs:** Two authoring styles in one SDK — imperative for graph construction, declarative for rules
-**Sources:** YAML language extensions spec §6.4 (rules), §6.2 (invariants)
-**Exploration:** quick
-**Status:** captured
+**Rationale:** D1 revision narrows TS scope to programmatic construction — rules and invariants are excluded from the TS surface. The TS audience is programmers who chose TS for programmatic control. A declarative sub-DSL within their programmatic environment contradicts their preference (research doc §2.3: "the moment you hand someone a `.ts` file with `import` statements, the 'configuration, not programming' psychological contract breaks"). Cross-surface resolution (#124) applies rules and invariants from YAML/Java annotations to TS-declared graphs — no reimplementation needed.
+**Trade-offs:** If a future use case validates rules-in-TS, the `defineRule()` imperative approach (typed functions returning `GraphMutation[]`) would be the right style — not a declarative pattern vocabulary.
+**Sources:** Research doc §2.3, CrossSurfaceRuleResolutionStep, D1 revision
+**Exploration:** quick → revised via review (R1-05)
+**Status:** revised
 
 ## D4: SDK API design
 
@@ -52,15 +57,18 @@
 
 ## D5: Type safety mechanism
 
-**Choice:** Generated .d.ts from Java @NodeTypeId-annotated types, producing a NodeTypeMap discriminated union
+**Choice:** Generated .d.ts from Jandex-scanned `@NodeTypeId`-annotated NodeSpec types, producing a NodeTypeMap discriminated union. Generation source is the same Jandex scan data that populates `NodeSpecRegistry` at build time. .d.ts files provide IDE autocomplete and type checking during TS authoring — decoupled from D2 (works regardless of where TS executes).
 **Alternatives:**
 - Manual TS types — hand-written, drift risk
 - Untyped spec maps — Map<string, unknown>, weakest safety
-**Rationale:** Auto-generated types stay in sync with Java. The NodeTypeMap enables spec-level autocomplete keyed on node type — the killer feature over YAML.
-**Trade-offs:** Requires a type generation tool/build step. Generated types may need manual review for complex Java types.
-**Sources:** GraphDescriptor.java, NodeDescriptor.java, @NodeTypeId
-**Exploration:** quick
-**Status:** captured
+- JSON Schema intermediate → TypeScript types via `json-schema-to-typescript` — adds a multi-consumer format (also usable for YAML spec validation, visual editor forms) at the cost of an extra intermediate and toolchain dependency
+- OpenAPI spec generation → TypeScript client — only relevant if GraphDescriptor submission is via REST (not the case with external compilation)
+- NodeSpecRegistry as generation source — functionally identical to Jandex/@NodeTypeId since NodeSpecRegistry is populated from the same Jandex scan
+**Rationale:** Auto-generated types stay in sync with Java. The `NodeTypeMap` enables spec-level autocomplete keyed on node type — the primary DX advantage over YAML. Generation from Jandex data aligns with how the YAML surface discovers types. JSON Schema as an intermediate is valid for multi-consumer scenarios but adds a layer without clear benefit for Phase 4 scope where .d.ts is the only consumer.
+**Trade-offs:** Requires a Quarkus build step that emits .d.ts from Jandex data. JSON Schema could be added as a parallel output of the same generation step in a future phase if YAML spec validation or visual editor form generation needs it.
+**Sources:** GraphDescriptor.java, NodeDescriptor.java, @NodeTypeId, NodeSpecRegistry
+**Exploration:** quick → revised via review (R1-06)
+**Status:** revised
 
 ## D6: Positioning relative to YAML
 
@@ -72,4 +80,16 @@
 **Trade-offs:** Neither surface is positioned as "preferred" — consumer must understand when each is appropriate
 **Sources:** Research doc §2.3 (Ansible observation about psychological contract), §5.2
 **Exploration:** quick
+**Status:** captured
+
+## D7: Compilation target
+
+**Choice:** TS compiles to GraphDescriptor-compatible JSON (same IR as YAML and annotations), consumed by a `TsDesiredStateProcessor` build step. Not to YAML.
+**Alternatives:**
+- TS emits YAML → feeds existing `YamlDesiredStateProcessor` — reuses YAML infrastructure but produces YAML error messages for TS authoring errors, loses line-number context, serialises programmatic constructs to YAML strings awkwardly
+- TS emits directly to `DesiredStateGraph` API — bypasses the IR, loses cross-surface rule resolution
+**Rationale:** TS → GraphDescriptor JSON converges at the IR level while keeping source-level concerns separate. A `TsDesiredStateProcessor` build step (parallel to `YamlDesiredStateProcessor`) reads JSON from `META-INF/desiredstate/`, produces `DesiredStateGraphBuildItem` entries. `CrossSurfaceRuleResolutionStep` then matches standalone rules/invariants to TS-declared graphs via `GraphPatternMatcher` — the same mechanism that bridges annotation rules to YAML graphs. The build step is thin: JSON → `GraphDescriptor` → downstream pipeline (GoalCompiler, rule engines, invariant engines) is shared.
+**Trade-offs:** A new build step is needed. But the step is minimal — it deserialises JSON into the same `GraphDescriptor` record the YAML processor produces. All downstream infrastructure is reused.
+**Sources:** YamlDesiredStateProcessor, CrossSurfaceRuleResolutionStep (#124), GraphDescriptor sealed evolution (D11 YAML decisions)
+**Exploration:** surfaced via review (R1-10)
 **Status:** captured
