@@ -26,3 +26,6 @@ flyway-next-v: none
     - [x] Task 5: pipeline-ts example
   - [ ] Batch 5: TSJ
     - [ ] Task 6: TsjTsExecutor experimental
+
+## Deferred
+- [ ] TsjTsExecutor experimental (S / Med) [] — TSJ (github.com/vgargatgit/tsj) has no embeddable Java API — CLI-only, no Maven artifact, no license. NodeTsExecutor is the working implementation. Revisit when TSJ publishes a library API.
