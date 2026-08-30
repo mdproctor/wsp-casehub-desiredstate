@@ -17,8 +17,8 @@ flyway-next-v: none
 - [ ] casehubio/casehub-desiredstate#122 — TypeScript DSL ← active
   - [x] Batch 1: ts-core
     - [x] Task 1: TsExecutor SPI + NodeTsExecutor
-  - [ ] Batch 2: SDK
-    - [ ] Task 2: TS SDK package
+  - [x] Batch 2: SDK
+    - [x] Task 2: TS SDK package
   - [ ] Batch 3: Build Extension
     - [ ] Task 3: TsGraphRecorder
     - [ ] Task 4: TsDesiredStateProcessor + CrossSurface fix
