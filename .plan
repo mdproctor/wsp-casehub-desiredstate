@@ -22,7 +22,7 @@ flyway-next-v: none
   - [x] Batch 3: Build Extension
     - [x] Task 3: TsGraphRecorder
     - [x] Task 4: TsDesiredStateProcessor + CrossSurface fix
-  - [ ] Batch 4: Integration
-    - [ ] Task 5: pipeline-ts example
+  - [x] Batch 4: Integration
+    - [x] Task 5: pipeline-ts example
   - [ ] Batch 5: TSJ
     - [ ] Task 6: TsjTsExecutor experimental
