@@ -20,7 +20,7 @@ flyway-next-v: none
   - [x] Batch 2: SDK
     - [x] Task 2: TS SDK package
   - [ ] Batch 3: Build Extension
-    - [ ] Task 3: TsGraphRecorder
+    - [x] Task 3: TsGraphRecorder
     - [ ] Task 4: TsDesiredStateProcessor + CrossSurface fix
   - [ ] Batch 4: Integration
     - [ ] Task 5: pipeline-ts example
