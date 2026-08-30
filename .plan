@@ -28,4 +28,4 @@ flyway-next-v: none
     - [ ] Task 6: TsjTsExecutor experimental
 
 ## Deferred
-- [ ] TsjTsExecutor experimental (S / Med) [] — TSJ (github.com/vgargatgit/tsj) has no embeddable Java API — CLI-only, no Maven artifact, no license. NodeTsExecutor is the working implementation. Revisit when TSJ publishes a library API.
+- [ ] TsjTsExecutor — pending TSJ packaging fix (S / Med) [] — TSJ embeddable API PR submitted (vgargatgit/tsj#1). TsjEvaluator works from TSJ project but emit-backend-tokens.cjs not bundled in JAR — embedding fails. Blocked until TSJ packages the bridge script as a classpath resource. NodeTsExecutor is the working implementation.
