@@ -19,9 +19,9 @@ flyway-next-v: none
     - [x] Task 1: TsExecutor SPI + NodeTsExecutor
   - [x] Batch 2: SDK
     - [x] Task 2: TS SDK package
-  - [ ] Batch 3: Build Extension
+  - [x] Batch 3: Build Extension
     - [x] Task 3: TsGraphRecorder
-    - [ ] Task 4: TsDesiredStateProcessor + CrossSurface fix
+    - [x] Task 4: TsDesiredStateProcessor + CrossSurface fix
   - [ ] Batch 4: Integration
     - [ ] Task 5: pipeline-ts example
   - [ ] Batch 5: TSJ
