@@ -15,8 +15,8 @@ flyway-next-v: none
 - [x] casehubio/casehub-desiredstate#124 — Issue #124
 - [x] casehubio/casehub-desiredstate#121 — YAML lifecycle hooks
 - [ ] casehubio/casehub-desiredstate#122 — TypeScript DSL ← active
-  - [ ] Batch 1: ts-core
-    - [ ] Task 1: TsExecutor SPI + NodeTsExecutor
+  - [x] Batch 1: ts-core
+    - [x] Task 1: TsExecutor SPI + NodeTsExecutor
   - [ ] Batch 2: SDK
     - [ ] Task 2: TS SDK package
   - [ ] Batch 3: Build Extension
