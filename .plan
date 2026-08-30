@@ -14,18 +14,4 @@ flyway-next-v: none
 ## Queue
 - [x] casehubio/casehub-desiredstate#124 — Issue #124
 - [x] casehubio/casehub-desiredstate#121 — YAML lifecycle hooks
-- [ ] casehubio/casehub-desiredstate#122 — TypeScript DSL ← active
-  - [x] Batch 1: ts-core
-    - [x] Task 1: TsExecutor SPI + NodeTsExecutor
-  - [x] Batch 2: SDK
-    - [x] Task 2: TS SDK package
-  - [x] Batch 3: Build Extension
-    - [x] Task 3: TsGraphRecorder
-    - [x] Task 4: TsDesiredStateProcessor + CrossSurface fix
-  - [x] Batch 4: Integration
-    - [x] Task 5: pipeline-ts example
-  - [ ] Batch 5: TSJ
-    - [ ] Task 6: TsjTsExecutor experimental
-
-## Deferred
-- [ ] TsjTsExecutor — pending TSJ packaging fix (S / Med) [] — TSJ embeddable API PR submitted (vgargatgit/tsj#1). TsjEvaluator works from TSJ project but emit-backend-tokens.cjs not bundled in JAR — embedding fails. Blocked until TSJ packages the bridge script as a classpath resource. NodeTsExecutor is the working implementation.
+- [x] casehubio/casehub-desiredstate#122 — TypeScript DSL
