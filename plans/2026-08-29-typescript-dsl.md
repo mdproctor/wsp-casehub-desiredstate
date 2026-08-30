@@ -107,22 +107,22 @@ exactly as specified in §4.1 of the design spec.
 
 Spawns `node --import tsx <runner.js> <input.ts>` subprocess.
 
-Create `ts-runner.js`:
+Create `ts-runner.mjs` (ESM — matches tsx loader expectations):
 ```javascript
-const path = require('path');
+import { pathToFileURL } from 'node:url';
+
 const file = process.argv[2];
-import(path.resolve(file))
-    .then(mod => {
-        const result = mod.default ?? mod;
-        process.stdout.write(JSON.stringify(result));
-    })
-    .catch(err => {
-        process.stderr.write(JSON.stringify({
-            error: err.message,
-            stack: err.stack
-        }));
-        process.exit(1);
-    });
+try {
+    const mod = await import(pathToFileURL(file).href);
+    const result = mod.default ?? mod;
+    process.stdout.write(JSON.stringify(result));
+} catch (err) {
+    process.stderr.write(JSON.stringify({
+        error: err.message,
+        stack: err.stack
+    }));
+    process.exit(1);
+}
 ```
 
 `NodeTsExecutor`:
@@ -499,7 +499,8 @@ public record TsEnvelopeNode(
     String id,
     String type,
     Map<String, Object> spec,
-    HumanGating humanGating
+    HumanGating humanGating,
+    Map<String, Object> hooks
 ) {
     public TsEnvelopeNode {
         if (humanGating == null) humanGating = HumanGating.NONE;
@@ -850,7 +851,7 @@ git commit -m "feat(#122): pipeline-ts example — TS graph + cross-surface rule
 Medallion pipeline declared as pre-compiled JSON envelope.
 @GraphRule with graph={\"pipeline:*\"} fires against TS graph.
 
-Closes #122"
+Refs #122"
 ```
 
 ---
