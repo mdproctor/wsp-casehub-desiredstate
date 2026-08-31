@@ -2,7 +2,7 @@
 
 ## State
 branch: issue-128-migrate-yaml-core
-state: scaffolded
+state: active
 project-sha: c21edd507fac06bdc5451db01bd19c54bf877d11
 date: 2026-08-31
 issue-repo: casehubio/casehub-desiredstate
@@ -13,3 +13,9 @@ flyway-next-v: none
 
 ## Queue
 - [ ] casehubio/casehub-desiredstate#128 — Issue #128 ← active
+  - [ ] Batch 1: VariableResolver
+    - [ ] Task 1: Add yaml-core dep + migrate VariableResolver
+  - [ ] Batch 2: ForEachExpander
+    - [ ] Task 2: Implement ForEachAdapter + restructure YamlGraphRecorder
+  - [ ] Batch 3: Verification
+    - [ ] Task 3: Full build verification
