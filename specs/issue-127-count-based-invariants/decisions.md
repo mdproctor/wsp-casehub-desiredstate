@@ -10,6 +10,16 @@
 **Exploration:** quick
 **Status:** captured
 
+## D2a: Defaults
+
+**Choice:** `@Match` default `minCount=0` (vacuous truth — universal quantification). `@DirectDep`/`@Reaches` default `minCount=1` (relationship must exist). `maxCount` unlimited everywhere. These are the clean semantics regardless of backward compatibility (pre-release).
+**Alternatives:** None considered — these are the mathematically correct defaults for each pattern kind.
+**Rationale:** Universal quantification ("for all X") is vacuously true with no X. Relationship patterns ("X depends on Y") are meaningless if Y need not exist.
+**Trade-offs:** None.
+**Sources:** `GraphInvariantEngine.buildExpectedAnchors()`, issue #115 spec D3 (vacuous truth)
+**Exploration:** quick
+**Status:** captured
+
 ## D2: Match-level cardinality semantics
 
 **Choice:** Count-only assertion — when `@Match` has `minCount` or `maxCount`, the invariant is a pure count check. No per-anchor expansion, no method body invocation. Separate invariants for count vs structural checks.
@@ -19,5 +29,16 @@
 **Trade-offs:** "At least 3 compute instances, each with a monitor" requires two invariants instead of one. This is a feature — each invariant has a single, clear violation mode.
 **Depends on:** D1 (cardinality on pattern annotations)
 **Sources:** `GraphInvariantEngine.buildExpectedAnchors()`, `GraphInvariantEngine.validateParameterized()`
+**Exploration:** quick
+**Status:** captured
+
+## D3: Expansion-level cardinality semantics
+
+**Choice:** `minCount`/`maxCount` on `@DirectDep`/`@Reaches` count expansions per anchor. Count check is independent of method body invocation — cardinality violation if count is outside bounds, method body still invoked per expansion for value checks.
+**Alternatives:** None — this is the natural generalization of the existing boolean existence check.
+**Rationale:** Today zero expansions = structural violation (implicit `minCount=1`). Explicit `minCount`/`maxCount` generalizes this. `maxCount` enables "at most N" constraints (e.g., "each service must have exactly one database" via `minCount=1, maxCount=1`).
+**Trade-offs:** None. Symmetric with match-level cardinality.
+**Depends on:** D1 (cardinality on pattern annotations)
+**Sources:** `GraphInvariantEngine.validateParameterized()`, `PatternEvaluator.expandChain()`
 **Exploration:** quick
 **Status:** captured
