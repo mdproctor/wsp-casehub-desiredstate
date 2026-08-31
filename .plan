@@ -17,17 +17,4 @@ date: 2026-08-31
 - [x] casehubio/casehub-ops#79 — feat: topology YAML modules — load-balancer, ha-multi-az, service-mesh, multi-region
 - [x] casehubio/casehub-ops#80 — feat: lifecycle + module interaction fix (cross-repo desiredstate)
 - [x] casehubio/casehub-ops#81 — feat: topology-tests module + 14 YAML exemplars with compilation tests
-- [ ] casehubio/casehub-ops#82 — feat: reconciliation + live K8s deployment tests (profile-gated) ← active
-  - [x] Batch 1: Infrastructure
-    - [x] Task 1: pom.xml deps + Maven profiles
-    - [x] Task 2: FailableNodeProvisioner
-    - [x] Task 3: ReconciliationTestBase
-  - [x] Batch 2: Reconciliation Tests
-    - [x] Task 4: SingleServiceReconciliationTest
-    - [x] Task 5: MultiTierReconciliationTest + fault escalation
-    - [x] Task 6: MicroservicesReconciliationTest
-    - [x] Task 7: EventDriven + SidecarMesh tests
-  - [x] Batch 3: Live Tests
-    - [x] Task 8: LiveDeploymentTest skeleton
-  - [x] Batch 4: Verification
-    - [x] Task 9: Full build verification
+- [x] casehubio/casehub-ops#82 — feat: reconciliation + live K8s deployment tests (profile-gated)
