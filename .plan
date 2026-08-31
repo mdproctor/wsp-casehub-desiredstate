@@ -1,0 +1,20 @@
+# Work Plan — issue-74-canonical-deployment-topologies
+
+## State
+branch: issue-74-canonical-deployment-topologies
+state: active
+issue-repo: casehubio/casehub-ops
+covers: 74
+Current: casehubio/casehub-ops#74 — Epic: Canonical deployment topologies — 5×4 matrix proving YAML frontend
+date: 2026-08-31
+
+## Queue
+- [x] casehubio/casehub-ops#74 — Epic: Canonical deployment topologies — 5×4 matrix proving YAML frontend
+- [x] casehubio/casehub-ops#75 — feat: NodeSpecFactory SPI + NodeSpecRegistry generalisation (cross-repo desiredstate prerequisite)
+- [ ] casehubio/casehub-ops#76 — feat: InfraNodeSpec topology type extensions — LoadBalancerSpec, SidecarProxySpec, DnsFailoverSpec, DataReplicationSpec, ServiceMeshControlPlaneSpec ← active
+- [ ] casehubio/casehub-ops#77 — feat: @NodeTypeId on existing InfraNodeSpec variants + null-coalescing for YAML compatibility
+- [ ] casehubio/casehub-ops#78 — feat: InfraWrappingFactory + InfraNodeSpecFactoryProvider — bridge InfraNodeSpec to YAML frontend
+- [ ] casehubio/casehub-ops#79 — feat: topology YAML modules — load-balancer, ha-multi-az, service-mesh, multi-region
+- [ ] casehubio/casehub-ops#80 — feat: lifecycle + module interaction fix (cross-repo desiredstate)
+- [ ] casehubio/casehub-ops#81 — feat: topology-tests module + 14 YAML exemplars with compilation tests
+- [ ] casehubio/casehub-ops#82 — feat: reconciliation + live K8s deployment tests (profile-gated)
