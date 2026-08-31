@@ -9,3 +9,15 @@
 **Sources:** `@Match` annotation, `PatternParameterDescriptor` record, `YamlPattern` record, `GraphInvariantEngine.buildExpectedAnchors()`
 **Exploration:** quick
 **Status:** captured
+
+## D2: Match-level cardinality semantics
+
+**Choice:** Count-only assertion — when `@Match` has `minCount` or `maxCount`, the invariant is a pure count check. No per-anchor expansion, no method body invocation. Separate invariants for count vs structural checks.
+**Alternatives:**
+- Cardinality as pre-check before normal evaluation — allows combining count and structure in one invariant but conflates two concerns, creates dual-mode methods, and produces ambiguous violation reporting
+**Rationale:** Two separate invariants are clearer than one doing double duty. Count invariants assert "enough of X exist." Structural invariants assert "each X has property Y." When `minCount=0` (default) and no `maxCount`, the invariant remains a normal per-anchor structural check — cardinality mode activates only when explicitly specified.
+**Trade-offs:** "At least 3 compute instances, each with a monitor" requires two invariants instead of one. This is a feature — each invariant has a single, clear violation mode.
+**Depends on:** D1 (cardinality on pattern annotations)
+**Sources:** `GraphInvariantEngine.buildExpectedAnchors()`, `GraphInvariantEngine.validateParameterized()`
+**Exploration:** quick
+**Status:** captured
