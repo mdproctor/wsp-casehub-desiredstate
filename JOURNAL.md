@@ -1,1 +1,1 @@
-# Design Journal — issue-127-count-based-invariants
+# Design Journal — issue-128-migrate-yaml-core
