@@ -13,15 +13,15 @@ flyway-next-v: none
 
 ## Queue
 - [ ] casehubio/casehub-desiredstate#127 — Issue #127 ← active
-  - [ ] Batch 1: Foundation
-    - [ ] Task 1: Extend PatternParameterDescriptor
-    - [ ] Task 2: Match-level cardinality engine
-    - [ ] Task 3: Expansion-level cardinality engine
-  - [ ] Batch 2: Annotation Surface
-    - [ ] Task 4: Add cardinality to annotations
-    - [ ] Task 5: Wire processor + build validation
-  - [ ] Batch 3: YAML Surface
-    - [ ] Task 6: YamlPattern cardinality + converter
-  - [ ] Batch 4: Integration
-    - [ ] Task 7: Pipeline example invariants
-    - [ ] Task 8: Full build verification
+  - [x] Batch 1: Foundation
+    - [x] Task 1: Extend PatternParameterDescriptor
+    - [x] Task 2: Match-level cardinality engine
+    - [x] Task 3: Expansion-level cardinality engine
+  - [x] Batch 2: Annotation Surface
+    - [x] Task 4: Add cardinality to annotations
+    - [x] Task 5: Wire processor + build validation
+  - [x] Batch 3: YAML Surface
+    - [x] Task 6: YamlPattern cardinality + converter
+  - [x] Batch 4: Integration
+    - [x] Task 7: Pipeline example invariants
+    - [x] Task 8: Full build verification
