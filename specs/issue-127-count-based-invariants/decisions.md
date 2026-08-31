@@ -42,3 +42,14 @@
 **Sources:** `GraphInvariantEngine.validateParameterized()`, `PatternEvaluator.expandChain()`
 **Exploration:** quick
 **Status:** captured
+
+## D4: YAML cardinality syntax
+
+**Choice:** Add `minCount`/`maxCount` fields directly to `YamlPattern` — same shape as the annotation attributes. `{ type: compute_instance, minCount: 3 }`. Absent means default (same as annotations).
+**Alternatives:** None — any divergence from the annotation model would create a learning burden for no benefit.
+**Rationale:** Direct mapping from YAML to `PatternParameterDescriptor`. Same fields, same semantics, same defaults. `YamlInvariantConverter` passes through to the same engine.
+**Trade-offs:** None.
+**Depends on:** D1 (cardinality on pattern annotations)
+**Sources:** `YamlPattern` record, `YamlInvariantConverter`, `YamlInvariant`
+**Exploration:** quick
+**Status:** captured
