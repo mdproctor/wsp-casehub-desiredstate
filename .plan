@@ -14,7 +14,7 @@ date: 2026-08-31
 - [x] casehubio/casehub-ops#76 — feat: InfraNodeSpec topology type extensions — LoadBalancerSpec, SidecarProxySpec, DnsFailoverSpec, DataReplicationSpec, ServiceMeshControlPlaneSpec
 - [x] casehubio/casehub-ops#77 — feat: @NodeTypeId on existing InfraNodeSpec variants + null-coalescing for YAML compatibility
 - [x] casehubio/casehub-ops#78 — feat: InfraWrappingFactory + InfraNodeSpecFactoryProvider — bridge InfraNodeSpec to YAML frontend
-- [ ] casehubio/casehub-ops#79 — feat: topology YAML modules — load-balancer, ha-multi-az, service-mesh, multi-region ← active
-- [ ] casehubio/casehub-ops#80 — feat: lifecycle + module interaction fix (cross-repo desiredstate)
-- [ ] casehubio/casehub-ops#81 — feat: topology-tests module + 14 YAML exemplars with compilation tests
-- [ ] casehubio/casehub-ops#82 — feat: reconciliation + live K8s deployment tests (profile-gated)
+- [x] casehubio/casehub-ops#79 — feat: topology YAML modules — load-balancer, ha-multi-az, service-mesh, multi-region
+- [x] casehubio/casehub-ops#80 — feat: lifecycle + module interaction fix (cross-repo desiredstate)
+- [x] casehubio/casehub-ops#81 — feat: topology-tests module + 14 YAML exemplars with compilation tests
+- [ ] casehubio/casehub-ops#82 — feat: reconciliation + live K8s deployment tests (profile-gated) ← active
