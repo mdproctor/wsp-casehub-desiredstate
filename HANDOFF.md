@@ -1,29 +1,20 @@
-# Handoff — casehub-desiredstate
+# HANDOFF — casehub-desiredstate
 
 ## Last Session
 
-Completed Phase 1 of #116 (YAML language extensions). Batches 3-5 implemented this session: PatternEvaluator extraction, sealed interface hierarchy (ResolvedRule/ResolvedInvariant with Imperative/ParameterizedReflective/Declarative variants), YAML invariants with structural pattern assertions, and conditional inclusion (when:) with dependency safety.
+Landed #127 (cardinality constraints — minCount/maxCount on graph invariants). Pivoted to #126 (module parameter validation), discovered desiredstate never migrated to yaml-core — filed #128 for the migration. Spent the session designing the migration: 12 regression concerns identified and resolved through platform API improvements (#252–#259, #266). Designed module outputs (#256), graph-core extraction (#267), and the GraphView reader/adapter pattern. All platform work now landed — #128 execution is unblocked.
 
-**Implementation this session (8 commits, Batches 3-5):**
-- **Batch 3 — Engine Infrastructure:** PatternEvaluator extracted from GraphRuleEngine and GraphInvariantEngine (~80 lines of duplicated expandChain logic eliminated). Wildcard `*` type matching in PatternMatchingSupport. Sealed interface hierarchy: `ResolvedRule` and `ResolvedInvariant` with three variants each (Imperative, ParameterizedReflective, Declarative). Old `ResolvedGraphRule`/`ResolvedGraphInvariant` records removed.
-- **Batch 4 — Declarative Invariants:** YamlInvariant/YamlPattern model types, build-time validation (match required, of-references checked, type validated). YamlInvariantConverter bridges YAML model to DeclarativeInvariant. GoalCompiler validates invariants via GraphInvariantEngine after graph construction. Custom message templates with `${match.*}` resolution. Pipeline-yaml integration test.
-- **Batch 5 — Conditional Inclusion:** `when:` field on YamlNode. `List<Object>` dependsOn supporting `{ node: "id", optional: true }` syntax. Build-time error when unconditional node depends on conditional node. Compile-time when: evaluation (truthy: true/yes/on/y/1, falsy: false/no/off/n/0). Optional dependencies to excluded nodes silently removed. Pipeline-yaml integration test with debug-validator node.
+## Immediate Next Step
 
-**Phase 1 complete.** An operator can write a single YAML file with nodes, dependencies, fault policies (template-based escalation), structural invariants (pattern assertions), and conditional nodes — no Java required. 41 new tests across the session.
+Rewrite the #128 implementation plan against the final yaml-core API (ExpansionResult with LinkedHashMap, DeferredPrefixHandler, SectionDeserializer/Rewriter, IterationValueExpander, module outputs, ForEachAdapter with generic reference rewriting, typedSection accessor). Then execute.
 
-**Next: Phase 2** — Declarative graph rules (structural rewriting in YAML) and lifecycle phases (build-then-operate). The sealed interface and PatternEvaluator infrastructure from Batch 3 directly enables this — `DeclarativeRule` variant is already in place but not yet wired for YAML.
+## Cross-Module
 
-## Branch
-
-`issue-116-yaml-language-design` — project + workspace
+- Platform #267 (graph-core extraction) — future, not blocking. Desiredstate #129 (in-place refactor) is the prerequisite.
 
 ## References
 
-| Artifact | Path |
-|----------|------|
-| Design spec | `specs/issue-116-yaml-language-design/2026-08-27-yaml-language-extensions-design.md` |
-| Decisions (16) | `specs/issue-116-yaml-language-design/decisions.md` |
-| Competitive comparison | `specs/issue-116-yaml-language-design/2026-08-28-scales-down-comparison.md` |
-| Phase 1 plan | `plans/2026-08-28-phase1-yaml-extensions.md` |
-| Blog | `docs/blog/2026-08-28-mdp01-the-operator-surface-that-scales-down.md` |
-| Review workspaces | `~/reviews/casehub-desiredstate/yaml-language-extensions-*` |
+- `specs/issue-128-migrate-yaml-core/2026-08-31-migrate-yaml-core-design.md` — migration spec (needs updating for final API)
+- `specs/issue-128-migrate-yaml-core/2026-09-02-yaml-core-migration-context.md` — full context doc: regression analysis, prior art, graph-core architecture
+- `plans/2026-08-31-migrate-yaml-core.md` — implementation plan (needs rewriting)
+- `blog/2026-09-01-mdp01-yaml-programming-language.md` — session diary
