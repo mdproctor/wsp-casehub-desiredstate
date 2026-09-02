@@ -54,7 +54,7 @@ Extract pure-Java summarisation types from the monolithic `casehub-blocks` jar i
 | Type | Current location | Extracted to |
 |------|-----------------|--------------|
 | `Summariser<IN,OUT>` | `blocks/` | `summarisation-api/` |
-| `LevelEvent<E>` | `blocks/` | `summarisation-api/` |
+| `LevelEvent<E>` (gains `@Nullable String tenancyId`) | `blocks/` | `summarisation-api/` |
 | `EventStreamBus<E>` | `blocks/` | `summarisation-api/` |
 | `WindowPolicy` | `blocks/` | `summarisation-api/` |
 | `EventAccumulator<E>` | `blocks/` | `summarisation-api/` |
@@ -83,7 +83,7 @@ New module in casehub-blocks. Dependencies: `casehub-blocks-summarisation-api`, 
 
 Two adapters (plain Java utilities, not CDI beans — instantiated by domain wiring code):
 
-**CloudEventIngestionAdapter** — Catches CloudEvents by configurable type pattern, extracts typed payload via Jackson, wraps as `LevelEvent<T>`, feeds into an `EventStreamBus<T>`. Captures `tenancyid` from each incoming CloudEvent.
+**CloudEventIngestionAdapter** — Catches CloudEvents by configurable type pattern, extracts typed payload via Jackson, wraps as `LevelEvent<T>` with tenancyId, feeds into an `EventStreamBus<T>`.
 
 ```java
 public class CloudEventIngestionAdapter<T> {
@@ -91,38 +91,40 @@ public class CloudEventIngestionAdapter<T> {
     private final Class<T> payloadType;
     private final EventStreamBus<T> outputBus;
     private final EventLevel level;
-    private volatile String lastTenancyId;
 
     public void onCloudEvent(CloudEvent event) {
         if (!acceptedTypes.contains(event.getType())) return;
-        this.lastTenancyId = (String) event.getExtension("tenancyid");
+        String tenancyId = (String) event.getExtension("tenancyid");
         T payload = deserialize(event, payloadType);
-        outputBus.publish(new LevelEvent<>(payload, event.getTime().toEpochMilli(), level));
+        outputBus.publish(new LevelEvent<>(payload, event.getTime().toEpochMilli(), level, tenancyId));
     }
-
-    public String tenancyId() { return lastTenancyId; }
 }
 ```
 
-**CloudEventEmitter** — Subscribes to an output `EventStreamBus<T>`, wraps summarised events as CloudEvents with configurable type URI and source, fires via CDI `Event<CloudEvent>.fireAsync()`. Reads `tenancyid` from the ingestion adapter's captured value.
+**CloudEventEmitter** — Subscribes to an output `EventStreamBus<T>`, wraps summarised events as CloudEvents with configurable type URI and source, fires via CDI `Event<CloudEvent>.fireAsync()`. Reads `tenancyid` from each output `LevelEvent`.
 
 ```java
 public class CloudEventEmitter<T> {
     private final String outputType;
     private final URI source;
     private final Event<CloudEvent> cloudEventBus;
-    private final Supplier<String> tenancyIdSupplier;
-
-    public CloudEventEmitter(String outputType, URI source,
-                             Event<CloudEvent> cloudEventBus,
-                             Supplier<String> tenancyIdSupplier) { ... }
 
     // Subscribes to EventStreamBus, wraps payloads as CloudEvents,
-    // sets tenancyid extension from supplier, fires async
+    // reads tenancyId from LevelEvent.tenancyId(), sets extension, fires async
 }
 ```
 
-**Tenancyid propagation:** The ingestion adapter captures `tenancyid` from each incoming CloudEvent. The emitter reads it via a supplier (typically `ingestionAdapter::tenancyId`). The pipeline internals (`LevelEvent`, `Summariser`, `SummarisationRunner`) do not carry tenancyid — it is a CloudEvent transport concern at the bridge boundary. Constraint: a pipeline serves a single tenant's event stream. This is consistent with how RAS Ganglia operate — situation definitions are tenant-scoped.
+**Tenancyid propagation — tenant-aware pipeline:** TenancyId flows through the entire pipeline via `LevelEvent`:
+
+1. `LevelEvent<E>` gains a `@Nullable String tenancyId` component: `record LevelEvent<E>(E payload, long timestamp, EventLevel level, @Nullable String tenancyId)`. Null is valid for single-tenant / test scenarios.
+2. `EventAccumulator<E>` partitions internally by tenancyId. Events with different tenancyIds are never batched together. `drainIfReady(now)` checks each tenant partition independently against the `WindowPolicy`. The external API is unchanged — `collect(LevelEvent)`, `drainIfReady(now)`.
+3. `KeyedAccumulator<K,E>` uses composite key `(tenancyId, K)` internally. Domain key extraction remains `Function<IN,K>` — tenancyId partitioning is transparent.
+4. `SummarisationRunner` receives tenant-homogeneous batches from the accumulator and propagates the batch's tenancyId to each output `LevelEvent`.
+5. `CloudEventEmitter` reads `tenancyId` from each output `LevelEvent` and sets the `tenancyid` extension attribute on the outgoing CloudEvent.
+
+This design is consistent with how RAS handles multi-tenancy: `SituationEvaluator` is `@ApplicationScoped` (one instance), handles ALL tenants per-event, and keys `SituationContext` by `(situationId, correlationKey, tenancyId)`. The summarisation pipeline must provide the same per-event tenant isolation — a single pipeline instance handles all tenants, with tenant partitioning inside the accumulators.
+
+**Breaking change:** `LevelEvent` gains a 4th component. Existing callers using `new LevelEvent<>(payload, timestamp, level)` must add a tenancyId argument. This is mechanical and intentional — every event source must be explicit about tenant identity.
 
 **Tick scheduling:** Every `SummarisationRunner` and `KeyedSummarisationRunner` requires periodic `tick(now)` calls to drain age-based windows and stale groups. The bridge module provides a `PipelineTickScheduler` that calls `tick()` on all runners in the pipeline at a configurable interval. Default interval: the smallest `window.maxAge` or `keyed.staleTimeout` across all pipeline levels, divided by 2 (Nyquist — ensures no window can expire unnoticed for more than half its max age). For YAML pipelines, the `PipelineCompiler` auto-generates a `@Scheduled` CDI bean that drives the tick scheduler. For explicit Java wiring, the domain's CDI setup must create and start the scheduler.
 
@@ -205,19 +207,39 @@ levels:
 
 `keyed` compiles to `KeyedSummarisationRunner` (key extraction → per-group accumulation → completion/stale drain). `window` compiles to `SummarisationRunner` (flat windowed batching). A level specifies exactly one of `window` or `keyed`.
 
+**Topology:** The YAML model defines a linear chain: `sources → level1 → level2 → ... → levelN`. Non-linear topologies (fanout, diamond, merge) require Tier 2 Java wiring via explicit `EventStreamBus` subscription. This is a deliberate Tier 1 simplification — linear chains (L1→L2→L3) are the most common pattern. The Java wiring API (`LogisticsPipelineTest` demonstrates arbitrary bus topologies) remains available for complex cases.
+
 #### 3.3.3 Built-in Summariser Types
 
-| Type | Purpose | Expression language | Output schema (`data` payload) |
-|------|---------|-------------------|-------------------------------|
-| `threshold-classify` | Classify events by field-matching rules into named categories | MVEL3 (boolean predicates) | `{ "classification": String, "matchedRule": int, "eventCount": int }` |
-| `phase-detect` | State machine over classified events — detect phase transitions | MVEL3 (transition predicates) | `{ "phase": String, "previousPhase": String, "transitionTime": long, "triggerCounts": Map<String,int> }` |
-| `count` | Count events per category within window | None (structural) | `{ "counts": Map<String,int>, "total": int, "windowStart": long, "windowEnd": long }` |
-| `field-extract` | Extract/reshape fields from CloudEvent data payload | JQ (document transformation) | Schema defined by the JQ expression — user-controlled |
-| `pass-through` | Identity — rebatch without transformation | None | Original payload, re-wrapped |
+| Type | Purpose | Expression language | Output cardinality | Output schema (`data` payload) |
+|------|---------|-------------------|--------------------|-------------------------------|
+| `threshold-classify` | Classify events by field-matching rules into named categories | MVEL3 (boolean predicates) | 1 output per input event | `{ "classification": String, "matchedRule": int }` |
+| `phase-detect` | State machine over classified events — detect phase transitions | MVEL3 (transition predicates) | 0 or 1 per batch (transition-only) | `{ "phase": String, "previousPhase": String, "transitionTime": long, "triggerCounts": Map<String,int> }` |
+| `count` | Count events per category within window | None (structural) | 1 per batch | `{ "counts": Map<String,int>, "total": int, "windowStart": long, "windowEnd": long }` |
+| `field-extract` | Extract/reshape fields from CloudEvent data payload | JQ (document transformation) | 1 output per input event | Schema defined by the JQ expression — user-controlled |
+| `pass-through` | Identity — rebatch without transformation | None | 1 output per input event | Original payload, re-wrapped |
+
+**Output cardinality matters for downstream `count()` in `phase-detect`:** `threshold-classify` emits one classified event per input event. A batch of 10 input events produces 10 output `LevelEvent`s. When `phase-detect` receives these 10 events and evaluates `count(DELAY)`, it counts how many of the 10 have `classification == "DELAY"`.
 
 These schemas are the contract between summarisation output and downstream consumers (RAS Ganglia, other pipeline levels). Expression rules in RAS situation definitions reference these field paths (e.g., `${data.phase == 'CONGESTION'}`).
 
+**`phase-detect` semantics:**
+- **Initial state:** The first element in the `states` list is the initial state (e.g., `states: [NORMAL, CONGESTION, RECOVERY]` → starts in `NORMAL`).
+- **Emit semantics:** `phase-detect` emits only on phase TRANSITIONS — when the evaluated batch causes the current phase to change. If the system stays in CONGESTION across multiple batches, no output events are emitted. The `previousPhase` field records the state before the transition; for the first transition, `previousPhase` is the initial state.
+- **State persistence:** `phase-detect` is stateful — it tracks the current phase across batches in memory. On pipeline restart (redeployment, crash), the state resets to the initial state. This means a transition that occurred before the restart will not re-fire after restart. This is a known limitation — RAS provides durable detection state via `SituationContext` + `SituationStore` with `storeVersion`-based optimistic locking. The summarisation pipeline produces event signals; RAS owns durable situation tracking. If durable phase state is needed, it should be a follow-on enhancement (file as a child issue).
+
 Expression language selection follows the RAS YAML situation system precedent: `threshold-classify` and `phase-detect` use MVEL3 (natural for boolean predicates); `field-extract` uses JQ (natural for document transformation). Both are available via `casehub-platform-expression`'s `CompiledExpression<CTX, RESULT>` interface (`CompiledExpression` is defined in `casehub-platform-api`; engine implementations are in `casehub-platform-expression`).
+
+**Expression contexts by position:**
+
+| Position | YAML example | Context object | Available fields/functions | Return type |
+|----------|-------------|----------------|---------------------------|-------------|
+| `threshold-classify` rule `when` | `"${data.detail contains 'timeout'}"` | `Map<String, Object>` mirroring `CloudEventExpressionContext`: `data` = payload, `timestamp`, `level`, `tenancyId` | All payload fields under `data.*`; event metadata at top level | `Boolean` |
+| `keyed.keyExpression` | `"${data.region}"` | Same as `threshold-classify` `when` — evaluated per event | Same as above | `Object` (the group key) |
+| `keyed.completionTest` | `"size() >= 10"` | `List<LevelEvent<IN>>` — the group's accumulated events | `size()` (list size); list-level operations | `Boolean` |
+| `phase-detect` transition `when` | `"count(DELAY) >= 3"` | Summariser-specific aggregate context over the classified batch | `count(CATEGORY)` — counts events where `classification == CATEGORY` | `Boolean` |
+
+The `threshold-classify` and `keyed.keyExpression` contexts use the same map structure as `CloudEventExpressionContext.build()` in RAS, with the `LevelEvent` payload placed under the `data` key. This ensures expressions are portable between summarisation YAML and RAS situation definitions.
 
 #### 3.3.4 Standard CloudEvent Type URIs (D9)
 
