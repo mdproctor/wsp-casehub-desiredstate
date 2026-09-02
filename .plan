@@ -13,11 +13,8 @@ flyway-next-v: unknown
 active-issue: 231
 
 ## Queue
-- [ ] casehubio/blocks#231 — extract summarisation types to summarisation-api ← active
-  - [ ] Batch 1: Batch 1 Foundation
-    - [ ] Task 1: Extract summarisation-api module
-    - [ ] Task 2: Tenant-aware LevelEvent + EventAccumulator partitioning
-- [ ] casehubio/blocks#232 — CloudEvent-Summarisation bridge module
+- [x] casehubio/blocks#231 — extract summarisation types to summarisation-api
+- [ ] casehubio/blocks#232 — CloudEvent-Summarisation bridge module ← active
   - [ ] Batch 1: Batch 1 Foundation
     - [ ] Task 1: CloudEvent bridge adapters + PipelineTickScheduler
     - [ ] Task 2: Multi-tenant integration tests
