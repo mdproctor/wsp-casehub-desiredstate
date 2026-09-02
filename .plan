@@ -1,0 +1,35 @@
+# Work Plan — # issue-74-topology-implementation
+
+## State
+branch: issue-74-topology-implementation
+state: active
+project-sha: none
+date: 2026-09-02
+issue-repo: casehubio/casehub-desiredstate
+covers: 74
+design-repo: workspace
+design-section-hashes: 
+flyway-next-v: unknown
+active-issue: 231
+
+## Queue
+- [ ] casehubio/blocks#231 — extract summarisation types to summarisation-api ← active
+  - [ ] Batch 1: Batch 1 Foundation
+    - [ ] Task 1: Extract summarisation-api module
+    - [ ] Task 2: Tenant-aware LevelEvent + EventAccumulator partitioning
+- [ ] casehubio/blocks#232 — CloudEvent-Summarisation bridge module
+  - [ ] Batch 1: Batch 1 Foundation
+    - [ ] Task 1: CloudEvent bridge adapters + PipelineTickScheduler
+    - [ ] Task 2: Multi-tenant integration tests
+- [ ] casehubio/blocks#233 — summarisation YAML surface with composable runtime
+  - [ ] Batch 1: Batch 2 YAML Surface
+    - [ ] Task 1: YAML model + PipelineCompiler + build extension
+    - [ ] Task 2: 5 built-in summariser types
+    - [ ] Task 3: SummariserRegistry + Tier 2 discovery
+- [ ] casehubio/blocks#234 — logistics hub example YAML-first pipeline
+  - [ ] Batch 1: Batch 2 YAML Surface
+    - [ ] Task 1: YAML pipeline + RAS situation definitions
+    - [ ] Task 2: Multi-tenant + end-to-end integration tests
+- [ ] casehubio/casehub-ops#84 — summarisation-enhanced RAS detection for deployment topologies
+  - [ ] Batch 1: Batch 3 Ops Enhancement
+    - [ ] Task 1: Deployment topology summarisation pipeline + RAS situations
