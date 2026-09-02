@@ -14,11 +14,8 @@ active-issue: 231
 
 ## Queue
 - [x] casehubio/blocks#231 — extract summarisation types to summarisation-api
-- [ ] casehubio/blocks#232 — CloudEvent-Summarisation bridge module ← active
-  - [ ] Batch 1: Batch 1 Foundation
-    - [ ] Task 1: CloudEvent bridge adapters + PipelineTickScheduler
-    - [ ] Task 2: Multi-tenant integration tests
-- [ ] casehubio/blocks#233 — summarisation YAML surface with composable runtime
+- [x] casehubio/blocks#232 — CloudEvent-Summarisation bridge module
+- [ ] casehubio/blocks#233 — summarisation YAML surface with composable runtime ← active
   - [ ] Batch 1: Batch 2 YAML Surface
     - [ ] Task 1: YAML model + PipelineCompiler + build extension
     - [ ] Task 2: 5 built-in summariser types
