@@ -12,11 +12,7 @@ design-section-hashes: 979de182:## Artifact Schema|4d2cc5ab:## §1 Introduction 
 flyway-next-v: none
 
 ## Queue
-- [ ] casehubio/casehub-desiredstate#128 — Issue #128 ← active
-  - [ ] Batch 1: VariableResolver
-    - [ ] Task 1: Add yaml-core dep + migrate VariableResolver
-  - [ ] Batch 2: ForEachExpander
-    - [ ] Task 2: Implement ForEachAdapter + restructure YamlGraphRecorder
-  - [ ] Batch 3: Verification
-    - [ ] Task 3: Full build verification
-- [ ] casehubio/casehub-desiredstate#126 — Adopt yaml-core module system + parameter validation
+- [x] casehubio/casehub-desiredstate#128 — Issue #128
+- [ ] casehubio/casehub-desiredstate#126 — Adopt yaml-core module system + parameter validation ← active
+  - [ ] Batch 1: Batch 1\
+    - [ ] Task 1: Design:Brainstorm #126 module migration design

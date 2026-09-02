@@ -2,22 +2,38 @@
 
 ## Last Session
 
-Landed #127 (cardinality constraints — minCount/maxCount on graph invariants). Pivoted to #126 (module parameter validation), discovered desiredstate never migrated to yaml-core — filed #128. Designed the migration: 12 regression concerns identified and resolved through platform API improvements (#252–#259, #266). Designed module outputs (#256), graph-core extraction (#267), and the GraphView reader/adapter pattern. All platform work now landed. Wrote ADR-0002 documenting why we built a custom YAML surface over CUE/ytt/HCL.
+Completed #128 (yaml-core migration). Three commits:
 
-Branch covers both #128 and #126 — sequential migration on the same code surface. #128 migrates the primitives (VariableResolver, ForEachExpander, Truthiness). #126 migrates the module layer (ModuleExpander, YamlModule, YamlModuleParameter) and picks up parameter validation for free.
+1. **VariableResolver migration** — replaced local `VariableResolver` and `UnresolvedVariableException` with yaml-core versions. `VariableSource.chain()` for source composition, `Set.of("match", "fault")` deferred prefixes replace `resolveTemplateString`. `withChainedScope("var", scope::get)` replaces `withModuleScope`. `Truthiness.isTruthy()` replaces local `isTruthy`. All callers updated: `YamlGraphRecorder`, `YamlRuleConverter`, `HookResolver`, `ForEachExpander`. Local resolver package deleted.
+
+2. **ForEachExpander migration** — created `YamlNodeForEachAdapter` implementing `ForEachAdapter<YamlNode>` with `ForEachDirective` conversion (sealed interface: `GroupRef`/`InlineIteration`), module-scope-aware stamping, dependency variable resolution in `stamp()`, and generic reference rewriting via `getReferences()`/`withReferences()` (platform #259). Restructured `YamlGraphRecorder` from single-pass to two-pass (yaml-core expand, then domain transform). `IterationValueExpander` replaces local `parseJsonArray`. `YamlGraph.iterations()` type changed to yaml-core `IterationGroup`. Deployment processor updated. Local `ForEachExpander` and `YamlIterationGroup` deleted.
+
+3. Net: -308 lines (541 deleted, 233 added). Full 28-module build green, 108 yaml/runtime + 28 yaml/deployment tests pass.
+
+Advanced queue to #126.
 
 ## Immediate Next Step
 
-Rewrite the #128 implementation plan against the final yaml-core API, then execute. After #128 tasks complete, advance to #126 (module layer migration) on the same branch.
+Brainstorm #126 (adopt yaml-core module system + parameter validation). The module layer migration is different from #128 — `ModuleExpander` needs to use yaml-core's `ModuleExpander` with `SectionDeserializer`, `SectionContentRewriter`, typed `YamlModuleOutput`, and `ParameterValidator`. Read the yaml-core module API surface before designing.
+
+Key platform APIs to study:
+- `io.casehub.yaml.core.module.ModuleExpander` — generic module expansion
+- `io.casehub.yaml.core.module.SectionDeserializer` / `SectionContentRewriter` — typed section handling
+- `io.casehub.yaml.core.module.ParameterValidator` / `ParameterValidationException` — validation
+- `io.casehub.yaml.core.module.YamlModuleOutput` — typed outputs for cross-module composition
+- `io.casehub.yaml.core.module.ExpansionOptions` — expansion configuration
 
 ## Cross-Module
 
 - Platform #267 (graph-core extraction) — future, not blocking. Desiredstate #129 (in-place refactor) is the prerequisite.
+- Platform #257 (allowedValues + constraintDescription) — open, would add enum constraints to parameter validation
+- Platform #266 (API polish — typedSection, output param validation, commaSplit, dead getId) — open, final quality pass
 
 ## References
 
-- `specs/issue-128-migrate-yaml-core/2026-08-31-migrate-yaml-core-design.md` — migration spec (needs updating for final API)
-- `specs/issue-128-migrate-yaml-core/2026-09-02-yaml-core-migration-context.md` — full context doc: regression analysis, prior art, graph-core architecture
-- `plans/2026-08-31-migrate-yaml-core.md` — implementation plan (needs rewriting)
+- `specs/issue-128-migrate-yaml-core/2026-08-31-migrate-yaml-core-design.md` — migration spec (executed, historical)
+- `specs/issue-128-migrate-yaml-core/2026-09-02-yaml-core-migration-context.md` — full context: regression analysis, graph-core architecture
+- `plans/2026-08-31-migrate-yaml-core.md` — implementation plan (executed, historical)
 - `docs/adr/0002-custom-yaml-surface-over-existing-tools.md` — ADR: why custom over CUE/ytt/HCL
-- `blog/2026-09-01-mdp01-yaml-programming-language.md` — session diary
+- `yaml/runtime/src/main/java/io/casehub/desiredstate/yaml/YamlNodeForEachAdapter.java` — new adapter (92 lines)
+- `yaml/runtime/src/main/java/io/casehub/desiredstate/yaml/ModuleExpander.java` — local module expander (#126 migration target)
