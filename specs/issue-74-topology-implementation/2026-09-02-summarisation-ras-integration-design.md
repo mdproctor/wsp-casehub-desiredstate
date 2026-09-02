@@ -61,43 +61,72 @@ Extract pure-Java summarisation types from the monolithic `casehub-blocks` jar i
 | `Compactor<E>` | `blocks/` | `summarisation-api/` |
 | `EventLevel` | `blocks/` | `summarisation-api/` |
 | `SummarisationRunner<IN,OUT>` | `blocks/` | `summarisation-api/` |
+| `KeyedAccumulator<K,E>` | `blocks/` | `summarisation-api/` |
+| `KeyedSummarisationRunner<K,IN,OUT>` | `blocks/` | `summarisation-api/` |
 
 These types are already pure Java — no CDI annotations, no Quarkus dependencies. Extraction is mechanical. This prevents bridge consumers from transitively depending on blocks' full dependency tree (qhorus-api, work-api, engine-api, eidos-api).
+
+**Types NOT extracted (remain in `casehub-blocks`):**
+
+| Type family | Reason |
+|-------------|--------|
+| `ContentSummariser<T>`, `TieredContentSummariser`, `VerbatimContentSummariser`, `ContentSummariserToSummariser` | Depends on `io.casehub.qhorus.api.spi.SummaryResult` — not pure Java |
+| `LlmContentSummariser<T>`, `SummaryMode` | Depends on `qhorus-api` + `platform-agent-api` |
+| `observation.*` package (`ObservationAccumulator`, `ObservationRenderer`, `TieredObservationRenderer`, `ObservationTier`, `ObservationContext`, `ObservationChunk`, `ObservationResult`) | Terminal consumer of the pipeline — separate concern from pipeline primitives. Uses `LevelEvent` (which moves to the API module) but blocks depends on its own API module, so no breakage |
+| `observation.affordance.*` package (`AffordanceRenderer`, `ObservableEntity`, `Affordance`, `ObservationSection`, etc.) | Grounded rendering — agent-facing concern, not pipeline plumbing |
+
+The extraction creates a deliberate package split: `io.casehub.blocks.summarisation` spans two modules. This is architecturally intentional — the API module holds pipeline primitives; blocks holds domain-integrated types that compose those primitives with qhorus, agent, and observation concerns.
 
 ### 3.2 Bridge Module — `casehub-blocks-cloudevents`
 
 New module in casehub-blocks. Dependencies: `casehub-blocks-summarisation-api`, `cloudevents-api`, `quarkus-arc`.
 
-Two adapters:
+Two adapters (plain Java utilities, not CDI beans — instantiated by domain wiring code):
 
-**CloudEventIngestionAdapter** — CDI observer that catches CloudEvents by configurable type pattern, extracts typed payload via Jackson, wraps as `LevelEvent<T>`, feeds into an `EventStreamBus<T>`.
+**CloudEventIngestionAdapter** — Catches CloudEvents by configurable type pattern, extracts typed payload via Jackson, wraps as `LevelEvent<T>`, feeds into an `EventStreamBus<T>`. Captures `tenancyid` from each incoming CloudEvent.
 
 ```java
-@ApplicationScoped
 public class CloudEventIngestionAdapter<T> {
     private final Set<String> acceptedTypes;
     private final Class<T> payloadType;
     private final EventStreamBus<T> outputBus;
     private final EventLevel level;
+    private volatile String lastTenancyId;
 
-    // Observes all CloudEvents, filters by type, extracts payload, publishes to bus
+    public void onCloudEvent(CloudEvent event) {
+        if (!acceptedTypes.contains(event.getType())) return;
+        this.lastTenancyId = (String) event.getExtension("tenancyid");
+        T payload = deserialize(event, payloadType);
+        outputBus.publish(new LevelEvent<>(payload, event.getTime().toEpochMilli(), level));
+    }
+
+    public String tenancyId() { return lastTenancyId; }
 }
 ```
 
-**CloudEventEmitter** — Subscribes to an output `EventStreamBus<T>`, wraps summarised events as CloudEvents with configurable type URI and source, fires via CDI `Event<CloudEvent>.fireAsync()`. Propagates `tenancyid` from input context.
+**CloudEventEmitter** — Subscribes to an output `EventStreamBus<T>`, wraps summarised events as CloudEvents with configurable type URI and source, fires via CDI `Event<CloudEvent>.fireAsync()`. Reads `tenancyid` from the ingestion adapter's captured value.
 
 ```java
-@ApplicationScoped
 public class CloudEventEmitter<T> {
-    private final String outputType;  // CloudEvent type URI
+    private final String outputType;
     private final URI source;
     private final Event<CloudEvent> cloudEventBus;
+    private final Supplier<String> tenancyIdSupplier;
 
-    // Subscribes to EventStreamBus, wraps payloads as CloudEvents, fires async
+    public CloudEventEmitter(String outputType, URI source,
+                             Event<CloudEvent> cloudEventBus,
+                             Supplier<String> tenancyIdSupplier) { ... }
+
+    // Subscribes to EventStreamBus, wraps payloads as CloudEvents,
+    // sets tenancyid extension from supplier, fires async
 }
 ```
 
-**Explicit wiring:** Domains construct their own `SummarisationRunner` chains, connecting ingestion adapter → runner(s) → emitter. ~30 lines of CDI setup per domain. No auto-discovery.
+**Tenancyid propagation:** The ingestion adapter captures `tenancyid` from each incoming CloudEvent. The emitter reads it via a supplier (typically `ingestionAdapter::tenancyId`). The pipeline internals (`LevelEvent`, `Summariser`, `SummarisationRunner`) do not carry tenancyid — it is a CloudEvent transport concern at the bridge boundary. Constraint: a pipeline serves a single tenant's event stream. This is consistent with how RAS Ganglia operate — situation definitions are tenant-scoped.
+
+**Tick scheduling:** Every `SummarisationRunner` and `KeyedSummarisationRunner` requires periodic `tick(now)` calls to drain age-based windows and stale groups. The bridge module provides a `PipelineTickScheduler` that calls `tick()` on all runners in the pipeline at a configurable interval. Default interval: the smallest `window.maxAge` or `keyed.staleTimeout` across all pipeline levels, divided by 2 (Nyquist — ensures no window can expire unnoticed for more than half its max age). For YAML pipelines, the `PipelineCompiler` auto-generates a `@Scheduled` CDI bean that drives the tick scheduler. For explicit Java wiring, the domain's CDI setup must create and start the scheduler.
+
+**Explicit wiring:** Domains construct their own `SummarisationRunner` chains in a `@Produces` method, connecting ingestion adapter → runner(s) → emitter. The wiring method receives `Event<CloudEvent>` via CDI injection and passes it to the `CloudEventEmitter` constructor. ~30 lines of CDI setup per domain. No auto-discovery.
 
 ### 3.3 YAML Surface — `casehub-blocks-summarisation-yaml`
 
@@ -155,28 +184,53 @@ pipeline:
         cloudEvent: io.casehub.logistics.phase
 ```
 
+**Keyed grouping mode:** Levels may use `keyed` instead of `window` to group events by a key expression and drain each group independently:
+
+```yaml
+levels:
+  per-region:
+    keyed:
+      keyExpression: "${data.region}"          # MVEL3 — extracts group key from payload
+      completionTest: "size() >= 10"           # MVEL3 — predicate over group's event list
+      staleTimeout: 120000                     # ms — drain group if no new events arrive
+    summariser:
+      type: threshold-classify
+      rules:
+        - when: "${data.severity == 'CRITICAL'}"
+          classify: CRITICAL_FAULT
+        - default: MINOR_FAULT
+    output:
+      cloudEvent: io.casehub.ops.region-anomaly
+```
+
+`keyed` compiles to `KeyedSummarisationRunner` (key extraction → per-group accumulation → completion/stale drain). `window` compiles to `SummarisationRunner` (flat windowed batching). A level specifies exactly one of `window` or `keyed`.
+
 #### 3.3.3 Built-in Summariser Types
 
-| Type | Purpose | Expression language |
-|------|---------|-------------------|
-| `threshold-classify` | Classify events by field-matching rules into named categories | MVEL3 (boolean predicates) |
-| `phase-detect` | State machine over classified events — detect phase transitions | MVEL3 (transition predicates) |
-| `count` | Count events per category within window | None (structural) |
-| `field-extract` | Extract/reshape fields from CloudEvent data payload | JQ (document transformation) |
-| `pass-through` | Identity — rebatch without transformation | None |
+| Type | Purpose | Expression language | Output schema (`data` payload) |
+|------|---------|-------------------|-------------------------------|
+| `threshold-classify` | Classify events by field-matching rules into named categories | MVEL3 (boolean predicates) | `{ "classification": String, "matchedRule": int, "eventCount": int }` |
+| `phase-detect` | State machine over classified events — detect phase transitions | MVEL3 (transition predicates) | `{ "phase": String, "previousPhase": String, "transitionTime": long, "triggerCounts": Map<String,int> }` |
+| `count` | Count events per category within window | None (structural) | `{ "counts": Map<String,int>, "total": int, "windowStart": long, "windowEnd": long }` |
+| `field-extract` | Extract/reshape fields from CloudEvent data payload | JQ (document transformation) | Schema defined by the JQ expression — user-controlled |
+| `pass-through` | Identity — rebatch without transformation | None | Original payload, re-wrapped |
 
-Expression language selection follows the RAS YAML situation system precedent: `threshold-classify` and `phase-detect` use MVEL3 (natural for boolean predicates); `field-extract` uses JQ (natural for document transformation). Both are available via `casehub-platform-expression`'s `CompiledExpression<CTX, RESULT>` interface.
+These schemas are the contract between summarisation output and downstream consumers (RAS Ganglia, other pipeline levels). Expression rules in RAS situation definitions reference these field paths (e.g., `${data.phase == 'CONGESTION'}`).
+
+Expression language selection follows the RAS YAML situation system precedent: `threshold-classify` and `phase-detect` use MVEL3 (natural for boolean predicates); `field-extract` uses JQ (natural for document transformation). Both are available via `casehub-platform-expression`'s `CompiledExpression<CTX, RESULT>` interface (`CompiledExpression` is defined in `casehub-platform-api`; engine implementations are in `casehub-platform-expression`).
 
 #### 3.3.4 Standard CloudEvent Type URIs (D9)
 
-Built-in summariser output uses standardised type URIs:
+Built-in summariser output uses standardised type URIs. The default pattern uses the level's ordinal (not its domain-specific name) for cross-domain consistency:
 ```
-io.casehub.blocks.summarisation.<level>.<builtin-type>
+io.casehub.blocks.summarisation.L<ordinal>.<builtin-type>
 ```
 
-Example: `io.casehub.blocks.summarisation.L2.threshold-classify`
+Example: A level at ordinal 2 using `threshold-classify` → `io.casehub.blocks.summarisation.L2.threshold-classify`
 
-Custom domain summarisers use domain-specific URIs (e.g., `io.casehub.logistics.phase.congestion`). The YAML `output.cloudEvent` field overrides the default URI — if specified, it takes precedence over the standard pattern.
+The YAML `output.cloudEvent` field overrides this default — **in practice, domain pipelines should always specify an override** with a domain-specific URI (e.g., `io.casehub.logistics.anomaly`). The default pattern exists as a fallback for pipelines that don't specify output URIs, ensuring every emitted CloudEvent has a deterministic type.
+
+Custom domain summarisers (Tier 2) always use domain-specific URIs.
 
 #### 3.3.5 `@SummariserTypeId` Annotation
 
@@ -210,8 +264,12 @@ Quarkus build extension (`casehub-blocks-summarisation-yaml-deployment`):
 
 1. Classpath scan for `META-INF/summarisation/*.yaml` pipeline definitions
 2. `@SummariserTypeId` registry scan via Jandex
-3. Build-time validation: unknown summariser types, invalid window policies, expression syntax
-4. CDI bean registration: `PipelineCompiler` that produces wired `SummarisationRunner` chains from YAML at `RUNTIME_INIT`
+3. Build-time validation:
+   - **Syntactic:** unknown summariser types, invalid window/keyed policies, expression syntax, level ordering
+   - **Semantic — state reachability (`phase-detect`):** all declared states are reachable from the initial state; no dead states with no incoming transitions; unreachable states are build errors
+   - **Semantic — cross-level consistency:** classification names used in downstream `phase-detect` transition predicates (e.g., `count(DELAY)`) must match classifications produced by the upstream `threshold-classify` level; mismatches are build errors
+   - **Semantic — loop prevention:** no ingestion adapter's `acceptedTypes` (from `sources`) may overlap with any emitter's `outputType` (from `output.cloudEvent`) across all pipelines in the deployment; overlaps are build errors. This prevents CloudEvent re-entry loops where summarised output re-triggers the same pipeline via the shared CDI bus
+4. CDI bean registration: `PipelineCompiler` produces wired `SummarisationRunner`/`KeyedSummarisationRunner` chains from YAML at `RUNTIME_INIT`, plus a `@Scheduled` tick driver bean per pipeline (interval derived from the smallest `window.maxAge` or `keyed.staleTimeout` / 2)
 
 ---
 
@@ -276,9 +334,13 @@ Pure blocks + RAS demonstration. No desiredstate dependency.
 The example aims to be maximally YAML-driven:
 - **Pipeline definition** — YAML with built-in `threshold-classify` and `phase-detect` summarisers
 - **RAS situation definitions** — YAML with `expression-rules` Ganglia
-- **Java escape hatches** — only for: (a) event simulation/generation, (b) test assertions, (c) any classification logic that exceeds expression capabilities
+- **Java escape hatches** — only for: (a) event simulation/generation, (b) test assertions
 
-The example validates whether Tier 1 (YAML standalone) is genuinely sufficient for a non-trivial pipeline. If it requires Java escape hatches beyond simulation and testing, that's a signal the built-in summariser types need extension.
+The example validates Tier 1 (YAML standalone) for per-event classification and state-machine phase detection — the two most common summarisation patterns. The built-in `threshold-classify` evaluates per-event boolean predicates; it does not perform cross-event correlation (e.g., grouping events by destination and counting distinct warehouses). Cross-event correlation is inherently Tier 2 — the expressiveness of Java is the right tool for batch-level aggregation logic.
+
+The existing Java logistics test (`AnomalyDetectorSummariser`) demonstrates exactly this Tier 2 pattern: its misroute detection groups events by destination and counts distinct warehouses, which is batch-level aggregation that cannot and should not be expressed as YAML predicates. The YAML example uses per-event classification rules (field-matching) to classify anomalies, then feeds those classifications into `phase-detect` for state-machine transitions. This is a genuinely non-trivial multi-level pipeline, validating that Tier 1 covers the common case without Java.
+
+If a domain requires cross-event correlation at the classification level, it provides a custom `@SummariserTypeId` Java class (Tier 2) and references it from YAML identically to built-in types.
 
 ### 5.3 Dependencies
 
@@ -336,6 +398,6 @@ The genuine desiredstate + summarisation use case: adding summarisation between 
 - GE-20260629-e8b16d — EventStreamBus.clear() lifecycle gotcha (argues for explicit wiring)
 - GE-20260817-ce1de5 — CloudEventExpressionContext map structure for expression rules
 - GE-20260616-02d0a7 — CaseHub entities are independently creatable (flat graph)
-- `capability-ownership.md` — "Temporal event summarisation" owned by casehub-blocks
-- `boundary-rules.md` — "Do not add domain logic to foundation repos"
-- `overview.md` — tier architecture and dependency order
+- `parent/docs/platform/capability-ownership.md` — "Temporal event summarisation" owned by casehub-blocks
+- `parent/docs/platform/boundary-rules.md` — "Do not add domain logic to foundation repos"
+- `parent/docs/platform/overview.md` — tier architecture and dependency order
