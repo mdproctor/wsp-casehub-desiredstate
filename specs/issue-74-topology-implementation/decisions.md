@@ -30,23 +30,24 @@
 **Alternatives:**
 - Adapters + pipeline builder — a declarative SummariserPipeline that auto-discovers @ApplicationScoped Summariser beans and wires L1→L2→...→CloudEvent output. More turnkey but more magic.
 - Full framework — adapters + pipeline builder + generic phase-tracking state machine. Maximum reuse but risks over-engineering before a second consumer validates the abstraction.
-**Rationale:** Explicit wiring is ~10 lines of CDI setup per domain. Auto-discovery adds non-obvious resolution rules and ordering problems. The YAML surface (D7) provides the declarative pipeline wiring, making a programmatic pipeline builder redundant.
-**Trade-offs:** Each domain writes its own wiring code. Mitigated by the YAML surface making this declarative.
-**Sources:** GE-20260629-e8b16d (EventStreamBus lifecycle gotcha — explicit wiring avoids hidden subscription management)
-**Exploration:** quick
-**Depends on:** D7 (YAML surface makes programmatic pipeline builder unnecessary)
-**Status:** captured
+**Rationale:** Explicit wiring is ~30 lines of CDI setup per domain (WindowPolicy, Summariser, EventStreamBus, SummarisationRunner construction, CloudEvent observer, output subscriber, tick scheduling). This is comparable to a GoalCompiler or NodeProvisioner implementation — the cost of entry for a domain that wants summarisation. Auto-discovery adds non-obvious resolution rules and ordering problems. The EventStreamBus lifecycle gotcha (GE-20260629-e8b16d) argues for explicit wiring — hidden subscription management is a known source of bugs. D3 stands independently of D7: even without the YAML surface, explicit wiring is the right default because the pipeline builder's auto-discovery magic introduces ordering and lifecycle issues that explicit construction avoids.
+**Trade-offs:** Each domain writes ~30 lines of wiring code. Acceptable — this is one-time per domain, not per endpoint. The YAML surface (D7) provides a declarative alternative for domains that prefer configuration over code.
+**Sources:** GE-20260629-e8b16d (EventStreamBus lifecycle gotcha — explicit wiring avoids hidden subscription management), SummarisationRunner constructor (6 parameters: WindowPolicy, Compactor, Summariser, EventStreamBus, EventLevel, onFailure)
+**Exploration:** quick → revised via adversarial review (R1-03)
+**Reinforced by:** D7 (YAML surface provides a declarative alternative, but D3's rationale does not depend on D7)
+**Status:** revised — decoupled from D7 dependency, corrected wiring estimate from ~10 to ~30 lines, strengthened independent rationale
 
-## D4: Ganglia — domain-specific, not generic
+## D4: Ganglia — tiered: expression-based default, domain-specific escape hatch
 
-**Choice:** Each domain writes its own RAS Ganglia for its own summarised CloudEvent types. The bridge module does not provide generic Ganglia.
+**Choice:** Built-in summariser types (D7 Tier 1) produce standardised CloudEvent output schemas. Ganglia for built-in summariser output use ExpressionRulesGanglion — parameterised via YAML with expression-based rules over CloudEventExpressionContext. Domain-specific Java Ganglia (extending JavaSwitchGanglion) remain available for custom summarisers or complex multi-signal correlation.
 **Alternatives:**
-- Generic PhaseTransitionGanglion in the bridge module — parameterised by event type and phase field extraction. Reusable but assumes all domains model phase transitions the same way.
-**Rationale:** Ganglia detection logic is inherently domain-specific. A "congestion" phase means something different in logistics vs. infrastructure vs. IoT. The CloudEvent type URI is the only abstraction boundary — Ganglia subscribe to specific types and implement domain-appropriate detection.
-**Trade-offs:** Each domain writes ~30 lines of Ganglion code. This is the correct amount of domain-specific logic.
-**Sources:** `NodeFaultGanglion.java` (30-line reference implementation), GE-20260817-ce1de5 (CloudEventExpressionContext structure for ExpressionRules)
-**Exploration:** quick
-**Status:** captured
+- Domain-specific only — each domain writes Java Ganglia for all its CloudEvent types. Simple and type-safe but misses the declarative opportunity that ExpressionRulesGanglion and D7's standardised output provide.
+- Generic only — all Ganglia are expression-based. Overly constraining for domains with complex correlation logic (e.g., multi-signal systemic failure detection across summarised streams).
+**Rationale:** ExpressionRulesGanglion already exists in casehub-ras-runtime and provides YAML-configurable detection with CloudEventExpressionContext. NodeFaultGanglion's pattern (type-switch → detected/anti/noise) is a subset of what ExpressionRulesGanglion supports — a `when: type == 'io.casehub.desiredstate.node.faulted'` rule with signal DETECTED is equivalent. If D7's built-in summarisers produce standardised output schemas with known field paths, expression rules can match those paths without domain-specific Java. The two-tier model mirrors D7's Tier 1 (built-in) / Tier 2 (custom Java) structure: YAML-configured expression Ganglia for standardised summariser output, Java Ganglia for custom summariser types.
+**Trade-offs:** Expression-based Ganglia are less type-safe than Java switch Ganglia. Complex multi-signal correlation (e.g., congestion + capacity + route failure = systemic breakdown) may exceed expression language capabilities. The escape hatch to Java Ganglia ensures no capability loss.
+**Sources:** ExpressionRulesGanglion (io.casehub.ras.runtime), CloudEventExpressionContext (GE-20260817-ce1de5), NodeFaultGanglion (30-line reference implementation), JavaSwitchGanglion (api base class)
+**Exploration:** quick → revised via adversarial review (R1-04)
+**Status:** revised — changed from domain-specific-only to tiered (expression-based default + domain-specific escape hatch)
 
 ## D5: Desiredstate is not needed in the logistics example
 
@@ -66,7 +67,7 @@
 - Example in desiredstate — keeps desiredstate examples together but creates an upstream→downstream dependency edge (desiredstate→blocks).
 - Separate integration repo — avoids new edges between existing repos but adds repo management overhead.
 **Rationale:** blocks is downstream in the dependency graph (already depends on engine-api, work-api, qhorus-api). Adding desiredstate-api for the ops enhancement example follows the same direction. The logistics example doesn't use desiredstate at all (D5), so it's purely a blocks + RAS example — natural home is blocks.
-**Trade-offs:** Desiredstate examples remain self-contained. The logistics example is in a different repo from the pipeline/dungeon/expansion examples, but it tests a different capability (summarisation, not graph management).
+**Trade-offs:** Desiredstate examples remain self-contained. The logistics example is in a different repo from the pipeline/dungeon/expansion examples, but it tests a different capability (summarisation, not graph management). Cross-reference documentation (a note in desiredstate's ARC42STORIES.MD §9.3 and README pointing to the blocks logistics example) addresses the discoverability gap for operators looking for desiredstate + summarisation integration.
 **Sources:** Platform overview (build/dependency order)
 **Depends on:** D5 (logistics example doesn't need desiredstate)
 **Exploration:** quick
@@ -79,7 +80,32 @@
 - Java-only API — no YAML surface. Domains wire everything programmatically. Simpler to implement but misses the operator-accessible declarative goal.
 - Separate builtins module — YAML module is pure parsing; built-in summariser types in a separate jar. More granular but two dependencies for the standalone case.
 **Rationale:** Follows the proven desiredstate pattern: YAML declares topology, @NodeTypeId maps types to Java classes, NodeSpecRegistry discovers at build time. Same model: YAML declares pipeline, @SummariserTypeId maps types to Java Summariser implementations, SummariserRegistry discovers at build time. Expression language from casehub-platform-expression (MVEL3 or JQ) powers the built-in rule-based summarisers.
-**Trade-offs:** Designing a good YAML surface and built-in summariser types is significant work. The built-in types must cover enough cases to make Tier 1 genuinely useful standalone, or the YAML surface is just ceremony over Java. The logistics example is the validation — if it can be expressed primarily in YAML, the surface works.
-**Sources:** desiredstate YAML model types (`YamlGraph`, `YamlNode`, `YamlRule`), `NodeSpecRegistry`, `@NodeTypeId`, `medallion-pipeline.yaml` (reference YAML example), `casehub-platform-expression` (MVEL3 + JQ)
+**Trade-offs:** Designing a good YAML surface and built-in summariser types is significant work. The built-in types must cover enough cases to make Tier 1 genuinely useful standalone, or the YAML surface is just ceremony over Java. The logistics example is the validation — if it can be expressed primarily in YAML, the surface works. Built-in summariser types MUST produce standardised output schemas — this is a design requirement, not optional. Without standardised output, built-in types are not genuinely useful standalone and Tier 1 loses its value.
+**Pending sub-decision:** Expression language for built-in summariser rules. `field-extract` needs document transformation (JQ territory), `threshold-classify` needs boolean evaluation (MVEL3 territory). Both are available via `casehub-platform-expression`'s `CompiledExpression<CTX, RESULT>` interface. Options: (a) JQ for all — natural for CloudEvent JSON data, awkward for boolean predicates; (b) MVEL3 for all — natural for predicates, awkward for document transformation; (c) both, selected per built-in type — each type uses the natural language, operator sees only the expression string in YAML. Resolution deferred to D7 implementation — the choice does not affect D7's structural design (composable YAML runtime with built-in types).
+**Sources:** desiredstate YAML model types (`YamlGraph`, `YamlNode`, `YamlRule`), `NodeSpecRegistry`, `@NodeTypeId`, `medallion-pipeline.yaml` (reference YAML example), `casehub-platform-expression` (MVEL3 + JQ), `CompiledExpression<CTX, RESULT>` (unified evaluation interface)
 **Exploration:** deep-analysis
+**Status:** captured — expression language sub-decision noted (R1-06)
+
+## D8: Summarisation types extracted to blocks API module
+
+**Choice:** Extract summarisation types (Summariser, LevelEvent, EventStreamBus, WindowPolicy, EventAccumulator, Compactor, EventLevel, SummarisationRunner) to a new `casehub-blocks-summarisation-api` module before building the bridge and YAML surface on top.
+**Alternatives:**
+- Keep monolithic blocks jar — simpler module structure but consumers of the bridge take a transitive dependency on ALL of blocks (qhorus-api, work-api, engine-api, eidos-api, worker-api, and all provided-scope deps).
+- Full blocks api/ extraction — more comprehensive (extract ALL blocks API types) but larger scope than needed for this issue. Can be done later.
+**Rationale:** The module-tier-structure protocol (PP-20260512-module-tiers) requires foundation-tier modules to separate API contracts from runtime implementations. The summarisation types are already pure Java — no CDI annotations, no Quarkus dependencies. Extraction is mechanical: move the `io.casehub.blocks.summarisation` package to a new module. Bridge consumers (D2) and YAML surface consumers (D7) depend on the lightweight API jar, not the full blocks jar. This is a prerequisite for the bridge module (D2) to avoid pulling blocks' full dependency tree.
+**Trade-offs:** New module adds build management overhead. Acceptable — the alternative (every bridge consumer transitively depends on qhorus-api, work-api, engine-api, eidos-api) is a clear module-tier-structure protocol violation.
+**Sources:** module-tier-structure protocol (PP-20260512-module-tiers), blocks pom.xml (compile deps: qhorus-api, work-api, engine-api, eidos-api, worker-api)
+**Exploration:** surfaced by adversarial review (R1-08)
+**Status:** captured
+
+## D9: Standard CloudEvent type URIs for built-in summariser output
+
+**Choice:** Built-in summariser types (D7 Tier 1) emit CloudEvents with standardised type URIs following the pattern `io.casehub.blocks.summarisation.<level>.<builtin-type>` (e.g., `io.casehub.blocks.summarisation.L2.threshold-classify`). Custom domain summarisers use domain-specific type URIs (e.g., `io.casehub.logistics.phase.congestion`).
+**Alternatives:**
+- All domain-specific URIs — each domain defines its own type URIs for all summarised events, including output from built-in summariser types. Prevents cross-domain generic Ganglia (D4) from consuming standardised output without per-domain configuration.
+- All standardised URIs — imposes a uniform URI scheme on custom domain summarisers. Too constraining — custom summarisers produce domain-shaped output that doesn't fit a standard schema.
+**Rationale:** Standardised URIs for built-in types enable generic ExpressionRulesGanglion configurations (D4) to detect patterns across domains without per-domain Ganglion registration. Combined with D4's tiered Ganglia approach and D7's standardised output schemas, this means an operator can wire a full summarisation→detection pipeline in YAML for standard cases. Domain-specific URIs remain available for custom summariser types — the standard applies only to D7 Tier 1 built-ins.
+**Trade-offs:** Standardised URIs couple the CloudEvent contract to the built-in summariser type taxonomy. If a built-in type's output schema changes, all consumers of that URI are affected. Mitigated by treating built-in output schemas as stable API contracts.
+**Sources:** DesiredStateEventTypes.java (reference: `io.casehub.desiredstate.reconciliation.completed` pattern), D4 (ExpressionRulesGanglion for standardised output), D7 (built-in summariser types)
+**Exploration:** surfaced by adversarial review (R1-11)
 **Status:** captured
