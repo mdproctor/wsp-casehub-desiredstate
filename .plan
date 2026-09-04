@@ -2,7 +2,7 @@
 
 ## State
 branch: issue-128-migrate-yaml-core
-state: active
+state: transitioning
 project-sha: c21edd507fac06bdc5451db01bd19c54bf877d11
 date: 2026-08-31
 issue-repo: casehubio/casehub-desiredstate
@@ -13,10 +13,4 @@ flyway-next-v: none
 
 ## Queue
 - [x] casehubio/casehub-desiredstate#128 — Issue #128
-- [ ] casehubio/casehub-desiredstate#126 — Adopt yaml-core module system + parameter validation ← active
-  - [x] Batch 1: Bridge foundation
-    - [x] Task 1: Create DesiredStateModuleBridge with tests
-  - [x] Batch 2: Migration
-    - [x] Task 2: Migrate recorder + processor to yaml-core module types
-  - [x] Batch 3: Examples
-    - [x] Task 3: Update YAML module examples with constraints
+- [x] casehubio/casehub-desiredstate#126 — Adopt yaml-core module system + parameter validation
