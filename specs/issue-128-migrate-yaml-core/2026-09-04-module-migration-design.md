@@ -160,7 +160,8 @@ is unchanged — it already works with `Map<String, YamlNode>` etc.
   validates all of this internally via `validateImports()` and `ParameterValidator.validateOrThrow()`.
 - Remove the local `validateImports()` method.
 - Build-time validation is still provided — the recorder's `createYamlGoalCompiler()` runs at
-  `RUNTIME_INIT`, and expansion failures surface as build errors.
+  Quarkus `RUNTIME_INIT` (augmentation time, not application runtime), and expansion failures
+  surface as build errors during `mvn install`.
 
 **Recorder call site:**
 - Pass `Map<String, YamlModule>` (yaml-core type) to `createYamlGoalCompiler()`.
