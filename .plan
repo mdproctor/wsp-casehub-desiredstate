@@ -1,0 +1,17 @@
+# Work Plan — issue-138-runtime-polish
+
+## State
+branch: issue-138-runtime-polish
+state: scaffolded
+project-sha: 615454a53a19d11fee2b866f96f9b9eb3b4d148d
+date: 2026-09-04
+issue-repo: casehubio/casehub-desiredstate
+covers: 138,129,132
+design-repo: project
+design-section-hashes: 979de182:## Artifact Schema|4d2cc5ab:## §1 Introduction and Goals|4f6b26ef:## §2 Constraints|39b76cb9:## §3 Context and Scope|74aa736f:## §4 Solution Strategy|9ca8de62:## §5 Building Block View|f1938c56:## §6 Runtime View|65807a21:## §7 Deployment View|a03d508f:## §8 Crosscutting Concepts|b2e1b57c:## §9 Journeys and Chapters|598f3a04:## §10 Architectural Decisions|1f604475:## §11 Quality Requirements|af5f260f:## §12 Risks and Technical Debt|42d51385:## §13 Glossary
+flyway-next-v: none
+
+## Queue
+- [ ] casehubio/casehub-desiredstate#138 — Issue #138 ← active
+- [ ] casehubio/casehub-desiredstate#129 — GraphView reader pattern in annotations runtime
+- [ ] casehubio/casehub-desiredstate#132 — Durable ReconciliationStateStore JPA
