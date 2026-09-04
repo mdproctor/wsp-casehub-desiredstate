@@ -1,7 +1,7 @@
-timestamp=2026-08-31T00:58:38.195786+00:00
-branch=issue-127-count-based-invariants
+timestamp=2026-09-04T09:15:49.827735+00:00
+branch=issue-128-migrate-yaml-core
 workspace_promoted=0
-project_promoted=50
+project_promoted=55
 issues_closed=0
-blog_published=0
-plans_archived=1
+blog_published=1
+plans_archived=3
