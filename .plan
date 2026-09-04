@@ -14,5 +14,9 @@ flyway-next-v: none
 ## Queue
 - [x] casehubio/casehub-desiredstate#128 — Issue #128
 - [ ] casehubio/casehub-desiredstate#126 — Adopt yaml-core module system + parameter validation ← active
-  - [ ] Batch 1: Batch 1\
-    - [ ] Task 1: Design:Brainstorm #126 module migration design
+  - [ ] Batch 1: Bridge foundation
+    - [ ] Task 1: Create DesiredStateModuleBridge with tests
+  - [ ] Batch 2: Migration
+    - [ ] Task 2: Migrate recorder + processor to yaml-core module types
+  - [ ] Batch 3: Examples
+    - [ ] Task 3: Update YAML module examples with constraints
