@@ -13,10 +13,10 @@ flyway-next-v: unknown
 
 ## Queue
 - [ ] casehubio/casehub-ops#87 — Issue #87 ← active
-  - [ ] Batch 1: Foundation
-    - [ ] Task 1: Module scaffolding + SPI types
-    - [ ] Task 2: Expression evaluator
-    - [ ] Task 3: Plugin interpolator
+  - [x] Batch 1: Foundation
+    - [x] Task 1: Module scaffolding + SPI types
+    - [x] Task 2: Expression evaluator
+    - [x] Task 3: Plugin interpolator
   - [ ] Batch 2: Core Engine
     - [ ] Task 4: YAML model + parser
     - [ ] Task 5: Step executor + built-in primitives
