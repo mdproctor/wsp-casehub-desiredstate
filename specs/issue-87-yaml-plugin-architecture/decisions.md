@@ -8,7 +8,7 @@
 - Full architecture overview — complete picture but too large for one spec (XL/High issue)
 - Bottom-up from one concrete plugin — discovers abstractions but risks over-fitting to one domain
 **Rationale:** Everything else depends on the plugin schema — the primitives, the concrete plugins, and the CaseHub integrations all consume this format.
-**Trade-offs:** Deferring the concrete plugins means the schema is validated against sketched examples, not real-world usage. Mitigated by designing with K8s Deployment as the reference plugin throughout.
+**Trade-offs:** Deferring the concrete plugins means the schema is validated against sketched examples, not real-world usage. Mitigated by validating the schema against structurally distinct provisioning patterns: K8s Deployment (REST API), a database provisioner (DDL + migration), and a multi-endpoint orchestrator (DNS + load balancer + app). K8s Deployment is the primary reference plugin; the other two are validation scenarios ensuring the schema accommodates non-REST patterns.
 **Sources:** casehubio/casehub-ops#87 issue body, YAML language extensions spec (#116)
 **Exploration:** quick
 **Status:** captured
@@ -20,23 +20,23 @@
 - Build-time code generation (Gizmo) — fastest runtime but complex build pipeline, harder to debug
 - Pure runtime interpretation — simpler build but errors surface only at execution time
 **Rationale:** Plugin steps make REST/GraphQL calls to external APIs — interpretation overhead is negligible compared to network latency. Build-time validation catches typos, missing primitives, and reference errors before deployment. Pattern proven by existing YAML surface (#116).
-**Trade-offs:** Interpretation has marginally higher per-call overhead than generated code. Acceptable because external API latency dominates.
+**Trade-offs:** Interpretation has marginally higher per-call overhead than generated code. Acceptable because external API latency dominates. Interpretation requires explicit error context propagation — when a step fails at runtime, the error must include: plugin file path, step name/index, primitive being executed, and interpolated parameter values. Build-time code generation provides natural stack traces; the interpreter must construct equivalent diagnostic context. The #116 YAML surface solved this for graph compilation errors — the plugin surface needs the same treatment for runtime step execution errors.
 **Sources:** YamlDesiredStateProcessor (existing build-time validation), YamlGraphRecorder (existing runtime interpretation)
 **Exploration:** quick
 **Status:** captured
 
 ## D3: NodeSpec — dual Java/YAML declaration, mixed freely
 
-**Choice:** Support both Java NodeSpec records (via @NodeTypeId) and YAML-defined spec schemas. Mixed and matched per type — a plugin can use either. YAML schemas define fields with types, constraints, and defaults. Runtime representation is Map<String, Object> for YAML-declared types.
+**Choice:** Support both Java NodeSpec records (via @NodeTypeId) and YAML-defined spec schemas. Mixed and matched per type — a plugin can use either. YAML schemas define fields with types, constraints, and defaults. YAML-declared types produce a `YamlNodeSpec` adapter that implements `NodeSpec` by wrapping `Map<String, Object>` — deriving `nodeType()` from the plugin's declared type and `humanGating()` from the YAML schema's `humanGating` field (defaulting to `HumanGating.NONE`). The `NodeSpecFactory` SPI provides the bridge: `create(Map<String, Object>) → NodeSpec`. `NodeSpecRegistry` gains a second resolution path: YAML-declared types resolve to a `NodeSpecFactory` (producing `YamlNodeSpec` wrappers), while Java-declared types resolve to `Class<? extends NodeSpec>` (existing path, using Jackson `convertValue`).
 **Alternatives:**
 - YAML-only schemas — achieves "no Java" but forces YAML on types that benefit from Java type safety
 - Java-only NodeSpec — simplest runtime but defeats the "no Java required" goal
 - JSON Schema — stricter validation but more verbose, harder for operators to author
-**Rationale:** Different plugin authors have different needs. Platform developers writing complex types want Java records. Operators adding a new REST-managed resource want YAML. The registry supports both transparently. Machine-readable YAML schemas enable future IDE plugins for autocomplete and refactoring.
-**Trade-offs:** Two code paths in NodeSpecRegistry — one for Java classes, one for YAML schemas. Complexity is bounded because both converge to the same runtime representation (the provisioner works with either).
-**Sources:** NodeSpecRegistry, @NodeTypeId annotation, user requirement for IDE plugin support
+**Rationale:** Different plugin authors have different needs. Platform developers writing complex types want Java records. Operators adding a new REST-managed resource want YAML. `NodeSpec` is NOT a marker interface — it declares `nodeType()` and `humanGating()`. A `Map<String, Object>` cannot implement it directly. `YamlNodeSpec` bridges this: it implements `NodeSpec`, wraps the raw map for field access by the step pipeline via `${spec.*}` interpolation, and provides `nodeType()` and `humanGating()` from the plugin's declared metadata. The `NodeSpecFactory` SPI already exists for this purpose. Machine-readable YAML schemas enable future IDE plugins for autocomplete and refactoring.
+**Trade-offs:** Two code paths in NodeSpecRegistry — one for Java classes (existing), one using `NodeSpecFactory` to produce `YamlNodeSpec` wrappers for YAML-declared types. Both paths produce a `NodeSpec` that `DesiredNode`, routing, and provisioning work with identically.
+**Sources:** NodeSpecRegistry, NodeSpecFactory, @NodeTypeId annotation, user requirement for IDE plugin support
 **Exploration:** quick
-**Status:** captured
+**Status:** revised — explicit `YamlNodeSpec` wrapper design replaces inaccurate "same runtime representation" claim
 
 ## D4: Composition model — step pipeline with named bindings
 
@@ -46,7 +46,7 @@
 - Nested expressions (Helm-style) — compact but harder to debug and validate
 - Serverless Workflow YAML — overkill for per-node provisioning; workflow orchestration already handled by CaseTransitionExecutor at the plan level
 **Rationale:** Per-node provisioning is 1-3 sequential REST calls to one external system. Parallelism within a single node doesn't make sense. Simplicity aids debugging and validation. The graph's node-level parallelism handles the case where independent nodes should provision concurrently.
-**Trade-offs:** Cannot express parallel API calls within one node's provisioning. Acceptable because this pattern is rare and can fall back to a Java NodeProvisioner.
+**Trade-offs:** Cannot express parallel API calls within one node's provisioning. Acceptable because this pattern is rare and can fall back to a Java NodeProvisioner. The full execution nesting model is: case → Worker(Workflow) → fork (parallel independent nodes) → per-node step pipeline (sequential). Per-node sequentiality is this decision. Graph-level parallelism is CaseTransitionExecutor's concern. Plugin authors see only their sequential pipeline; the parallelism across nodes is invisible to them.
 **Sources:** GitHub Actions step model, Ansible tasks model
 **Exploration:** quick
 **Status:** captured
@@ -57,23 +57,24 @@
 **Alternatives:**
 - Flat first, compose later — simpler first iteration but defers the composition model, risking a retrofit
 - Java-only primitives — simplest but limits the "no Java" story
-**Rationale:** The issue explicitly requires "YAML over YAML over Java" composition. Deferring it risks designing a primitive contract that doesn't support composition, requiring a breaking change later. Build-time expansion of YAML primitives into flat step sequences keeps runtime simple.
-**Trade-offs:** More complex build-time validation (cycle detection, depth checking, parameter propagation across composition boundaries). Worth it to avoid retrofit.
+**Rationale:** The issue explicitly requires "YAML over YAML over Java" composition. Deferring it risks designing a primitive contract that doesn't support composition, requiring a breaking change later. Build-time expansion of YAML compound primitives into step sequence templates keeps runtime simple. The expanded result is a template — `${spec.*}` and `${auth.*}` values are runtime-resolved during step execution, not at expansion time. Expansion is macro-style: the compound primitive's steps are inlined at each invocation site. Runtime-conditional sub-primitive selection (choosing between sub-primitives based on runtime state) is not supported — that logic belongs in the step pipeline (D4) or falls back to Java.
+**Trade-offs:** More complex build-time validation (cycle detection, depth checking, parameter propagation across composition boundaries). Parameter scoping uses innermost-wins: when primitive A invokes compound primitive B which invokes leaf primitive C, C's `${param.*}` resolves against B's parameter declarations. A's parameters are not visible to C unless B explicitly passes them through as its own parameters. Max nesting depth is 5 (vs #116 D10's module nesting cap of 2). The difference is justified: primitive expansion produces a flat runtime artifact (step sequence template). Deep nesting increases authoring complexity but not debugging complexity — the expanded result is flat, and error reporting traces back to the source primitive chain. Module nesting at depth 2+ creates nested graph structures that operators must navigate at runtime.
 **Sources:** casehubio/casehub-ops#87 "Composable: YAML over YAML over Java", #116 module composition model
 **Exploration:** quick
 **Status:** captured
 
-## D6: Auth model — named auth refs resolved at runtime
+## D6: Auth model — CredentialResolver SPI directly
 
-**Choice:** Plugin steps reference authentication by name (auth: k8s). Auth providers are registered separately (YAML config or Java CDI bean) and resolve credentials at runtime via CredentialResolver. Plugin YAML is credential-free.
+**Choice:** Plugin steps reference credentials by name via `auth:` stanzas, each mapping a logical name to a `credentialRef` string. At runtime, `CredentialResolver.resolve(credentialRef)` returns `Map<String, String>` credential properties. Plugin YAML uses `${auth.<name>.<key>}` interpolation to inject credential values (e.g., `${auth.k8s.token}`). No additional auth provider registration mechanism — the existing `CredentialResolver` SPI handles resolution directly. Plugin YAML is credential-free. Endpoint URLs are a separate concern, provided via `${spec.*}` fields or `${var.*}` variables per plugin — not conflated with credential resolution.
 **Alternatives:**
 - Inline credential config — simpler for single-use plugins but mixes concerns, risks credential leakage
-- EndpointRegistry integration — reuses existing platform infra but couples plugins to endpoint registration model
-**Rationale:** Separation of concerns — plugin logic describes behavior, not credentials. Auth providers are environment-specific (dev vs prod). Named refs allow multiple plugins to share the same auth provider.
-**Trade-offs:** Requires a separate auth provider registration mechanism. Builds on existing CredentialResolver SPI from casehub-platform.
-**Sources:** casehub-platform CredentialResolver SPI, EndpointRegistry credentialRef pattern
+- Auth provider abstraction layer — adds indirection over CredentialResolver without architectural benefit; `CredentialResolver` already supports named refs, environment-specific resolution, and shared providers
+- EndpointRegistry for URLs — platform endpoint resolution is path-based and tenancy-aware, designed for platform-internal services; external API endpoints (K8s API server, Cloudflare, etc.) are better modeled as spec fields or variables
+**Rationale:** Separation of concerns — plugin logic describes behavior, not credentials. `CredentialResolver.resolve(credentialRef)` is exactly the right abstraction: named credential lookup with environment-specific implementations. No additional layer needed.
+**Trade-offs:** None significant — this is direct reuse of an existing platform SPI. Endpoint resolution is deferred to per-plugin design (spec fields, variables, or future EndpointRegistry integration for platform-managed services).
+**Sources:** casehub-platform CredentialResolver SPI (`Map<String, String> resolve(String credentialRef)`)
 **Exploration:** quick
-**Status:** captured
+**Status:** revised — removed unnecessary auth provider abstraction layer; CredentialResolver SPI used directly
 
 ## D7: SPI mapping — single generic provisioner/adapter per surface
 
@@ -81,7 +82,7 @@
 **Alternatives:**
 - Per-plugin synthetic beans — each YAML plugin generates a separate NodeProvisioner/ActualStateAdapter bean at build time. More aligned with annotation surface but creates N beans instead of 1.
 **Rationale:** The router already handles multi-type provisioners via handledTypes(). A single generic bean is simpler — one bean, one routing table. Per-plugin beans would create unnecessary CDI complexity. Build-time conflict detection catches Java/YAML type overlap.
-**Trade-offs:** A single bean handling many types has a larger routing table. Negligible impact at expected scale (10-50 plugin types).
+**Trade-offs:** A single bean handling many types has a larger routing table. Negligible impact at expected scale (10-50 plugin types). Build-time conflict detection between Java and YAML type declarations requires a cross-surface validation pass: the annotations processor knows about Java @NodeTypeId types, the YAML plugin processor knows about YAML plugin types — a new validation step must union both sets and detect overlaps. This cross-surface validation is an explicit build-time requirement, not an implicit assumption. Dynamic CDI dependency resolution for different plugin types is handled at the primitive level, not the provisioner level — primitives are registered CDI beans with their own injection.
 **Sources:** DefaultNodeProvisionerRouter, CdiNodeProvisionerRouter, handledTypes() SPI contract
 **Exploration:** quick
 **Status:** captured
@@ -122,13 +123,51 @@
 
 ## D11: Interpolation namespaces — extending #116 model
 
-**Choice:** Plugin YAML adds three new interpolation prefixes to the #116 namespace model: ${spec.*} (node spec fields), ${auth.<name>.*} (auth provider properties), and ${param.*} (compound primitive parameters). Step results use unqualified names (${response.body}, not ${step.response.body}). Build-time validates no name collision between result names and reserved prefixes.
+**Choice:** Plugin YAML adds four new interpolation prefixes to the #116 namespace model: `${spec.*}` (node spec fields), `${auth.<name>.*}` (credential properties via CredentialResolver), `${param.*}` (compound primitive parameters), and `${result.*}` (prior step results). All step results are qualified: `${result.response.body}`, `${result.extracted.items}`. Every interpolation reference uses an explicit prefix — no unqualified names. For YAML-declared types (D3), `${spec.*}` resolves via `Map.get()` on the `YamlNodeSpec` wrapper's underlying map. For Java NodeSpec records, `${spec.*}` resolves via record component accessors.
 **Alternatives:**
-- All-qualified names (${step.response.body}) — more explicit but verbose for the common case
+- Unqualified step result names (`${response.body}`) — shorter but creates a frozen reserved prefix list. Adding any new top-level prefix (e.g., `${env.*}`, `${debug.*}`) would break existing plugins with a step result of that name. Build-time validation catches current collisions but cannot protect against future prefixes.
 - Single flat namespace — simpler but collision-prone
-**Rationale:** Short unqualified result names match the sequential pipeline mental model — each step names its output, subsequent steps reference it. Reserved prefix check at build time prevents the collision risk. Consistent with #116's prefix-based dispatch architecture.
-**Trade-offs:** Unqualified result names could shadow reserved prefixes — mitigated by build-time validation.
-**Depends on:** D4 (step pipeline model)
-**Sources:** #116 §4 Interpolation Model
+**Rationale:** Consistent with #116 D1: "A variable named `sink` and a pattern binding named `sink` are indistinguishable without prefixes." The same principle applies to step results vs top-level namespaces. Qualified names provide permanent namespace isolation — no reserved prefix list to maintain or freeze. The verbosity cost is bounded (7 characters per reference) and consistent with the existing prefix convention.
+**Trade-offs:** `${result.response.body}` is longer than `${response.body}`. Acceptable — all other namespaces (`${spec.*}`, `${auth.*}`, `${param.*}`, `${var.*}`, `${match.*}`, `${fault.*}`, `${each.*}`) are equally prefixed.
+**Depends on:** D4 (step pipeline model), D3 (NodeSpec representation — affects `${spec.*}` resolution)
+**Sources:** #116 §4 Interpolation Model, #116 D1 (explicit namespaces prevent ambiguity)
 **Exploration:** quick
+**Status:** revised — qualified `${result.*}` prefix replaces unqualified step result names for forward-compatibility and #116 D1 consistency
+
+## D12: Plugin schema versioning — explicit version field
+
+**Choice:** Plugin YAML files include an explicit `version:` field (initially `1`). Schema evolution defaults to backward-compatible (additive changes only). Non-backward-compatible changes increment the version. Build-time validation rejects unknown versions with a clear error. No migration transformers in v1 — migration tooling is a future concern if schema-breaking changes prove necessary.
+**Alternatives:**
+- No version field — implicit v1 forever. Works until the first breaking change, then requires out-of-band coordination
+- Schema version with migration transformers — provides automated upgrade paths but adds build-time complexity before there is evidence of need
+- Backward-compatible evolution only (never break) — constrains schema design indefinitely
+**Rationale:** An explicit version field costs nothing and provides the escape hatch for future evolution. The default strategy (additive-only) avoids migration complexity. If a breaking change is needed later, the version field enables detection and clear error reporting.
+**Trade-offs:** One extra line per plugin file (`version: 1`). Negligible cost.
+**Sources:** #116 YAML surface (no version field — additive evolution worked so far)
+**Exploration:** quick (surfaced by reviewer)
+**Status:** captured
+
+## D13: Testing model — deferred to companion spec
+
+**Choice:** The YAML plugin testing story is architecturally significant and deferred to a companion spec. The testing model must support: (1) schema validation without Quarkus boot (CLI tool or standalone validator), (2) step pipeline testing against mock external APIs (WireMock-based), (3) interpolation verification with sample spec values, (4) fault policy behavior testing with simulated failures. The existing `casehub-desiredstate-testing` module (MockNodeProvisioner, MockActualStateAdapter) provides the SPI-level mocks; the plugin testing layer sits above this.
+**Alternatives:**
+- Test only via full Quarkus boot — too heavy for rapid iteration, defeats the "no Java required" goal
+- Inline testing in this spec — expands scope beyond the plugin schema and interpreter design
+**Rationale:** The inner development loop for YAML plugin authors is a first-class concern, but it depends on the schema and interpreter being designed first. A companion spec can design the testing model against the finalized plugin format.
+**Trade-offs:** Plugin authors have no formal testing story until the companion spec is delivered. Mitigated by build-time validation catching structural errors.
+**Sources:** casehub-desiredstate-testing module (existing SPI mocks), casehubio/casehub-ops#87 testing section
+**Exploration:** quick (surfaced by reviewer)
+**Status:** captured
+
+## D14: Graph-to-plugin cross-file validation — build-time type coverage
+
+**Choice:** Build-time validation that every node type referenced in graph files has a provisioner declaration — either a Java @NodeTypeId-annotated class or a YAML plugin at META-INF/desiredstate/plugins/<type>.yaml. Moves the current runtime check (`DefaultNodeProvisionerRouter`: "No provisioner for node type: X") to build time. The YAML plugin discovery (D8) is integrated with the graph validation from #116 to produce a unified type coverage check.
+**Alternatives:**
+- Runtime-only validation (current state) — errors surface only at execution time, which may be in production
+- Partial build-time validation (graph types only, no plugin check) — catches undefined types but not missing provisioners
+**Rationale:** Build-time validation is a core principle of this architecture (D2). Cross-file type coverage is the natural extension: if a graph declares a node of type "ingestion", and no provisioner exists for "ingestion," that's a build-time error, not a runtime surprise.
+**Trade-offs:** Requires the build-time processor to union type information across three surfaces: Java annotations, YAML graph files, and YAML plugin files. The `YamlDesiredStateProcessor` already handles graph + annotation cross-validation (#116); this adds the plugin surface.
+**Depends on:** D7 (SPI mapping), D8 (plugin file structure)
+**Sources:** DefaultNodeProvisionerRouter runtime validation, YamlDesiredStateProcessor build-time validation
+**Exploration:** quick (surfaced by reviewer)
 **Status:** captured
