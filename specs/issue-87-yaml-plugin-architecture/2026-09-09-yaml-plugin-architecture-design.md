@@ -583,7 +583,7 @@ public class YamlPluginActualStateAdapter implements ActualStateAdapter {
     @Override
     public ActualState readActual(DesiredStateGraph graph, String tenancyId) {
         Map<NodeId, NodeStatus> states = new HashMap<>();
-        for (DesiredNode node : graph.nodes()) {
+        for (DesiredNode node : graph.nodes().values()) {
             if (plugins.containsKey(node.type())) {
                 PluginDescriptor plugin = plugins.get(node.type());
                 StepContext context = buildContext(node, tenancyId, plugin);
@@ -623,9 +623,14 @@ relevant for case similarity matching. A future feature-aware
 build per-type similarity indices.
 
 **Outcome signal declarations** describe what constitutes success/failure
-after reconciliation. A future CBR Revise step (currently outside
-desiredstate scope — see CBR integration design §Deferred) will consume
-these declarations to provide per-type outcome feedback to
+after reconciliation. `${result.*}` references in outcome signals resolve
+against the **actual-state** pipeline's step context — the pipeline that
+observes current state after a CBR-proposed change has been applied. This
+is distinct from the provisioner pipeline's context. Outcome signals are
+not evaluated by the plugin system itself — a future CBR Revise step
+(currently outside desiredstate scope — see CBR integration design
+§Deferred) will consume these declarations along with actual-state
+pipeline results to provide per-type outcome feedback to
 `CbrProposalTracker`.
 
 The existing CBR infrastructure (`ConfigurationRetriever`,
@@ -663,6 +668,16 @@ variant. The referenced ganglion is inferred from event types —
 | `count: N` | `Count(ganglionId, N)` | N total positive evaluations in window |
 | `rate: { threshold: F, window: N }` | `Rate(ganglia, F, N)` | F fraction positive in window of N |
 
+**Build-time ganglion compatibility validation:** `streak` and `count`
+chain modes require a single ganglion ID. If the declared `events` contain
+primary events (excluding `NODE_RECOVERED`) that map to different ganglia,
+the build fails. Example: `events: [NODE_FAULTED, NODE_DRIFTED]` with
+`chain-mode: streak: 3` is a build error — `NODE_FAULTED` maps to
+`NodeFaultGanglion.ID` and `NODE_DRIFTED` maps to
+`PersistentDriftGanglion.ID`. Use `rate` for multi-ganglion situations
+(accepts a `Set<String>` of ganglia), or split into separate situation
+definitions.
+
 Custom chain modes (And, Or, Threshold, Sequence) or custom ganglia fall
 back to Java `SituationDefinitionProvider` implementations.
 
@@ -686,6 +701,7 @@ BUILD TIME (YamlPluginProcessor)
    - Composition cycle detection
    - Nesting depth check (≤ 5)
 6a. Validate actual-state pipelines contain exactly one `compare-state` step
+6b. Validate actual-state pipelines do not contain `approval-gate` steps
 7. Validate interpolation references:
    - ${spec.*} references exist in spec schema or Java record
    - ${auth.*} names resolve to declared auth stanzas
@@ -702,6 +718,8 @@ BUILD TIME (YamlPluginProcessor)
 11. Validate RAS situations:
     - events map to known DesiredStateEventTypes constants
     - chain-mode is a supported variant (streak, count, rate)
+    - streak/count chain modes: all primary events (excluding NODE_RECOVERED)
+      must infer the same ganglion; mixed-ganglion events are a build error
     - correlation-window parses as valid Duration
     - trigger and trigger-mode are known values
     - correlation-key references resolve
@@ -714,6 +732,8 @@ BUILD TIME (YamlPluginProcessor)
     - YamlPluginActualStateAdapter
     - ThresholdFaultPolicy per plugin fault-policy
     - NodeSpecFactory per YAML-declared type
+    - SituationDefinitionProvider for YAML-declared RAS situations
+    - CbrPluginMetadata per YAML-declared CBR section
 ```
 
 Errors reference source YAML file and line number. Typo detection uses
@@ -733,7 +753,8 @@ New modules in casehub-desiredstate:
 **Dependency direction:**
 - `plugin/api/` depends on `casehub-desiredstate-api` (NodeSpec, NodeType, etc.)
 - `plugin/runtime/` depends on `plugin/api/` + `casehub-desiredstate` (runtime)
-  + `casehub-platform` (CredentialResolver)
+  + `casehub-platform` (CredentialResolver) + `casehub-ras-api`
+  (SituationDefinition, ChainMode, TriggerAction for YamlPluginRasRegistrar)
 - `plugin/deployment/` depends on `plugin/runtime/` + yaml deployment
   infrastructure
 
