@@ -141,6 +141,17 @@ cbr:
   outcome-signals:
     success: "${result.response.body.status.availableReplicas} >= ${spec.replicas}"
 
+**Feature transforms** (optional): pre-process the source value before
+similarity comparison. Built-in transforms:
+
+| Transform | Semantics | Example |
+|-----------|-----------|---------|
+| `regex:<pattern>` | Extract first capture group | `regex:^([^:]+)` extracts image name from `nginx:1.25` → `nginx` |
+| `lowercase` | Case-insensitive comparison | `lowercase` normalizes `PostgreSQL` → `postgresql` |
+| `hash` | SHA-256 hash (for high-cardinality values) | `hash` reduces unique URIs to fixed-length tokens |
+
+Custom transforms fall back to Java (`FeatureTransform` SPI — future).
+
 ras:
   situations:
     - name: crash-loop-backoff
@@ -247,14 +258,35 @@ Minimal control flow at the step level:
 | Directive | Semantics |
 |-----------|-----------|
 | `when:` | Conditional execution (reuses #116 truthy/falsy vocabulary) |
-| `on-error: retry` | Retry the step (configurable: `max-retries`, `backoff`) |
+| `on-error: retry` | Retry the step. Optional: `max-retries` (default 3), `backoff` (default `fixed:1s`, also `exponential:1s`) |
 | `on-error: fail` | Fail the pipeline (default) |
 | `on-error: skip` | Skip the step, continue pipeline |
 
 No loops — use `forEach:` at the graph level for iteration. No parallel
 steps — per-node provisioning is sequential by design (D4).
 
-### 6.3 StepResult Structure
+### 6.3 Condition Expression Vocabulary
+
+Conditions in `compare-state`, `assert`, and `when:` use a simple operator
+vocabulary — not a full expression language. Consistent with the #116
+principle: "YAML is data, not code."
+
+| Operator | Example | Semantics |
+|----------|---------|-----------|
+| `==` | `${result.r.status} == 200` | Equality (string or numeric) |
+| `!=` | `${result.r.status} != 404` | Inequality |
+| `<`, `>`, `<=`, `>=` | `${spec.replicas} > 0` | Numeric comparison |
+| `in` | `${result.r.status} in [200, 201]` | Set membership |
+| `contains` | `${result.r.body.message} contains "Ready"` | Substring match |
+| `and`, `or` | `... == 200 and ... > 0` | Boolean combinators |
+| `not` | `not ${result.r.status} == 404` | Negation |
+
+Interpolation happens first (all `${}` references resolved to values),
+then the expression is evaluated. Build-time validates expression syntax
+and that all interpolation references resolve. Complex logic that exceeds
+this vocabulary falls back to a Java `StepPrimitive`.
+
+### 6.4 StepResult Structure
 
 The `rest-call` primitive produces:
 
@@ -290,7 +322,9 @@ public interface StepPrimitive {
 | `json-extract` | Extract values from JSON | `input`, `path` (JSONPath), `result` |
 | `compare-state` | Map response to NodeStatus | `present-when`, `absent-when`, `degraded-when` |
 | `assert` | Fail pipeline on condition | `condition`, `message` |
-| `retry` | Retry a sub-step with backoff | `step`, `max-retries`, `backoff` |
+
+Retry is handled via `on-error: retry` on individual steps (§6.2), not as
+a separate primitive. This avoids two retry mechanisms with different semantics.
 
 ### 7.2 YAML Compound Primitives
 
