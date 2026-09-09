@@ -171,3 +171,28 @@
 **Sources:** DefaultNodeProvisionerRouter runtime validation, YamlDesiredStateProcessor build-time validation
 **Exploration:** quick (surfaced by reviewer)
 **Status:** captured
+
+## D15: CBR and RAS sections required — declarative metadata for v1
+
+**Choice:** `cbr:` and `ras:` sections are required in every plugin YAML file, matching issue #87's explicit requirement. In v1 (this spec), the sections are declarative metadata — they declare features, outcome signals, and situation definitions without creating new runtime infrastructure. Full runtime integration (feature-aware ConfigurationRetriever for CBR, custom ganglia for RAS) is designed in companion specs under subsystem 5.
+**Alternatives:**
+- Optional cbr/ras (spec's original position) — contradicts issue #87's stated requirement and dilutes the architectural intent
+- Required with full runtime integration — the CBR infrastructure (FeatureValue, similarity index) doesn't exist yet; RAS integration needs the SituationDefinition vocabulary, not simple expressions
+**Rationale:** Issue #87 explicitly states "CBR: every plugin declares its learning surface (required, not optional)" and "RAS: every plugin declares detection situations (required, not optional)." Making them required enforces the architectural goal: every resource type is a self-healing, self-learning unit. The v1 declarative-metadata scope is honest about what the plugin schema spec delivers — the declarations are structurally correct and build-time validated, but the retrieval/feedback runtime is a separate concern.
+**Trade-offs:** Plugin authors must fill out cbr and ras sections even before the full runtime consumes them. This is intentional — declarations baked in from day one are forward-compatible; bolting them on later risks gaps and inconsistency.
+**Depends on:** D10 (CBR/RAS declarative metadata scope), R1-06, R1-07, R1-08
+**Sources:** casehubio/casehub-ops#87 issue body ("5 required sections"), CBR integration design spec
+**Exploration:** quick (surfaced by R1-06)
+**Status:** captured
+
+## D16: #117 D10 superseded — YamlNodeSpec enables Java-free types
+
+**Choice:** Explicitly supersede #117 decision D10 ("YAML requires Java NodeSpec classes on classpath"). `YamlNodeSpec` implements `NodeSpec` by wrapping `Map<String, Object>`, enabling operators to define new node types purely in YAML without compiling Java classes.
+**Alternatives:**
+- Leave D10 in force — defeats the "no Java required" goal of #87
+**Rationale:** D10 was appropriate for #117's scope (graph declaration — the graph declares WHAT exists, but provisioning HOW is still Java). #87 extends the surface to include behavior (provisioning, detection), making Java-free types both possible and desirable. The constraint is lifted, not violated — it's an intentional architectural evolution.
+**Trade-offs:** `YamlNodeSpec` carries fields as `Map<String, Object>` — no compile-time type safety within the spec. Mitigated by build-time schema validation against the plugin's field definitions.
+**Depends on:** D3 (dual declaration)
+**Sources:** #117 decisions.md D10, casehubio/casehub-ops#87 issue body
+**Exploration:** quick (surfaced by R1-14)
+**Status:** captured
