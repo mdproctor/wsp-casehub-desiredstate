@@ -63,6 +63,10 @@ Discovered at build time via classpath scan. Plugins can ship in library JARs.
 plugin:
   type: k8s-deployment
   version: 1
+  resyncInterval: 30s
+  auth:
+    k8s:
+      credentialRef: k8s-cluster-credentials
 
 spec:
   fields:
@@ -80,7 +84,7 @@ actual-state:
         result: response
     - compare-state:
         present-when: "${result.response.status} == 200"
-        degraded-when: "${result.response.body.status.availableReplicas} < ${spec.replicas}"
+        drifted-when: "${result.response.body.status.availableReplicas} < ${spec.replicas}"
         absent-when: "${result.response.status} == 404"
 
 provisioner:
@@ -155,13 +159,23 @@ Custom transforms fall back to Java (`FeatureTransform` SPI — future).
 ras:
   situations:
     - name: crash-loop-backoff
-      detect: "${result.response.body.status.unavailableReplicas} > 0"
-      severity: warning
+      events: [NODE_FAULTED, NODE_RECOVERED]
+      correlation-window: 10m
+      chain-mode:
+        streak: 3
+      trigger: create-case
+      trigger-mode: fire-once
       correlation-key: "${spec.namespace}"
 ```
 
-**Required sections:** `plugin`, `spec`, `actual-state`, `provisioner`.
-**Optional sections:** `fault-policy`, `cbr`, `ras`.
+**Required sections:** `plugin`, `spec`, `actual-state`, `provisioner`, `cbr`, `ras`.
+**Optional sections:** `fault-policy`.
+
+**Hooks:** Lifecycle hooks (Verify, Notify, Wait) are a graph-level concern,
+declared per node in graph YAML via the existing `provision:`/`deprovision:`
+hook syntax from #116. Plugin YAML does not declare default hooks — the plugin
+defines *how* to provision, while the graph node defines *what happens around*
+provisioning. The two concerns are independent.
 
 ## 5. YAML Spec Schema
 
@@ -201,18 +215,43 @@ public final class YamlNodeSpec implements NodeSpec {
 YAML-declared types. For Java NodeSpec records, `${spec.*}` resolves via
 record component accessors (reflective, cached at build time).
 
+**Supersedes #117 D10:** The YAML surface foundation (#117) required Java
+NodeSpec classes on classpath for every type (D10: "operators cannot define
+new node types purely in YAML"). This spec explicitly supersedes that
+constraint — `YamlNodeSpec` enables new node types without Java. The
+constraint was appropriate for #117's scope (graph declaration only); #87
+extends the surface to include behavior (provisioning, detection), making
+Java-free types both possible and desirable.
+
 ### 5.3 NodeSpecRegistry Extension
 
-`NodeSpecRegistry` gains a second resolution path:
+`NodeSpecRegistry` gains a factory resolution path alongside the existing
+class-based path:
+
+```java
+public class NodeSpecRegistry {
+    // Existing: class-based resolution for Java @NodeTypeId types
+    public Class<? extends NodeSpec> resolve(String typeName);
+
+    // New: factory-based resolution for YAML plugin types
+    public Optional<NodeSpecFactory> resolveFactory(String typeName);
+
+    // New: check which path a type uses
+    public boolean isFactoryType(String typeName);
+}
+```
 
 | Source | Resolution |
 |--------|-----------|
-| Java `@NodeTypeId` | `Class<? extends NodeSpec>` → Jackson `convertValue` (existing) |
-| YAML plugin | `NodeSpecFactory` → `YamlNodeSpec` wrapper with schema validation |
+| Java `@NodeTypeId` | `resolve(typeName)` → `Class<? extends NodeSpec>` → Jackson `convertValue` (existing) |
+| YAML plugin | `resolveFactory(typeName)` → `NodeSpecFactory.create(specMap)` → `YamlNodeSpec` with schema validation |
 
-The `NodeSpecFactory` SPI already exists for this purpose. Each YAML plugin
-registers a factory that validates the raw spec map against the schema and
-produces a `YamlNodeSpec`.
+Callers (e.g., `YamlGraphRecorder`) check `resolveFactory()` first. If present,
+the factory validates the raw spec map against the plugin's field definitions and
+produces a `YamlNodeSpec`. If absent, falls back to `resolve()` for class-based
+Jackson deserialization. The `NodeSpecFactory` SPI (`create(Map<String, Object>) →
+NodeSpec`) already exists — each YAML plugin registers a factory via
+`NodeSpecFactoryProvider` at build time.
 
 ### 5.4 Dual Declaration
 
@@ -281,10 +320,17 @@ principle: "YAML is data, not code."
 | `and`, `or` | `... == 200 and ... > 0` | Boolean combinators |
 | `not` | `not ${result.r.status} == 404` | Negation |
 
-Interpolation happens first (all `${}` references resolved to values),
-then the expression is evaluated. Build-time validates expression syntax
-and that all interpolation references resolve. Complex logic that exceeds
-this vocabulary falls back to a Java `StepPrimitive`.
+Interpolation resolves `${}` references to typed values (string, number,
+boolean), then the expression evaluator operates on those typed operands.
+Interpolated values are atomic tokens — they cannot inject operators or
+sub-expressions. `${result.response.body.message}` resolving to
+`"Ready or true"` is treated as a single string value, not three tokens.
+The expression `${result.response.body.message} contains "Ready"` evaluates
+as `<string:"Ready or true"> contains <string:"Ready">` → `true`.
+
+Build-time validates expression syntax and that all interpolation references
+resolve. Complex logic that exceeds this vocabulary falls back to a Java
+`StepPrimitive`.
 
 ### 6.4 StepResult Structure
 
@@ -320,11 +366,36 @@ public interface StepPrimitive {
 | `rest-call` | HTTP REST call | `method`, `url`, `auth`, `headers`, `body`, `result` |
 | `graphql-call` | GraphQL query/mutation | `url`, `auth`, `query`, `variables`, `result` |
 | `json-extract` | Extract values from JSON | `input`, `path` (JSONPath), `result` |
-| `compare-state` | Map response to NodeStatus | `present-when`, `absent-when`, `degraded-when` |
+| `compare-state` | Map response to NodeStatus | `present-when`, `absent-when`, `drifted-when` |
 | `assert` | Fail pipeline on condition | `condition`, `message` |
+| `approval-gate` | Conditional PendingApproval | `when`, `plan-reference` |
 
 Retry is handled via `on-error: retry` on individual steps (§6.2), not as
 a separate primitive. This avoids two retry mechanisms with different semantics.
+
+**`compare-state` evaluation precedence:** Conditions are evaluated in fixed
+order: `absent-when` → `drifted-when` → `present-when`. The first condition
+that evaluates to `true` determines the `NodeStatus`. If no condition matches,
+the result is `NodeStatus.UNKNOWN`. This ordering ensures drift is detected
+even when the resource technically exists (HTTP 200 with insufficient replicas
+→ `DRIFTED`, not `PRESENT`).
+
+**`approval-gate`** returns `ProvisionResult.PendingApproval` when the `when:`
+condition evaluates to `true` and no prior approval exists in the
+`ProvisionContext`. On re-entry with `context.hasApproval()`, the gate is
+skipped and the pipeline continues. The `plan-reference:` expression provides
+the opaque string round-tripped through the approval lifecycle. Example:
+
+```yaml
+provisioner:
+  provision:
+    steps:
+      - approval-gate:
+          when: "${spec.replicas} > 10"
+          plan-reference: "scale-${spec.name}-to-${spec.replicas}"
+      - rest-call:
+          # ... proceeds only after approval or if gate condition is false
+```
 
 ### 7.2 YAML Compound Primitives
 
@@ -455,8 +526,46 @@ public class YamlPluginProvisioner implements NodeProvisioner {
         StepContext context = buildContext(node, ctx, plugin);
         return executor.execute(plugin.deprovisionSteps(), context);
     }
+
+    @Override
+    public Duration resyncIntervalFor(NodeType type) {
+        PluginDescriptor plugin = plugins.get(type);
+        return plugin != null ? plugin.resyncInterval() : Duration.ofMinutes(5);
+    }
 }
 ```
+
+**Approval support:** When the step pipeline encounters an `approval-gate`
+step whose condition is met, `StepPipelineExecutor.execute()` returns
+`ProvisionResult.PendingApproval(nodeId, planReference)`. The `buildContext()`
+method passes `ProvisionContext.approval()` into the `StepContext`, making it
+available to `approval-gate` steps via `context.hasApproval()`.
+
+**Per-type resync interval:** `YamlPluginProvisioner` overrides a new default
+method on `NodeProvisioner`:
+
+```java
+// New default method on NodeProvisioner
+default Duration resyncIntervalFor(NodeType type) {
+    return resyncInterval();
+}
+```
+
+`DefaultNodeProvisionerRouter.resyncIntervalFor()` calls
+`p.resyncIntervalFor(type)` instead of `p.resyncInterval()`, enabling
+per-type intervals. `YamlPluginProvisioner.resyncIntervalFor()` returns
+the interval declared in each plugin's `resyncInterval:` field, falling
+back to 5 minutes if unspecified.
+
+**Result mapping:** `StepPipelineExecutor.execute()` maps pipeline outcomes
+to `ProvisionResult` / `DeprovisionResult`:
+
+| Pipeline outcome | Result |
+|-----------------|--------|
+| All steps succeed | `Success` |
+| `approval-gate` triggers (no approval) | `PendingApproval(nodeId, planReference)` |
+| Any step fails (`assert`, `on-error: fail`) | `Failed(reason)` — reason from the failing step |
+| Step throws exception | `Failed(exception.getMessage())` |
 
 ### 9.2 Generic Actual State Adapter
 
@@ -488,6 +597,12 @@ public class YamlPluginActualStateAdapter implements ActualStateAdapter {
 }
 ```
 
+**Result mapping:** `StepPipelineExecutor.executeActualState()` extracts
+`NodeStatus` from the `compare-state` step's result. If the pipeline fails
+before reaching `compare-state`, or if no `compare-state` step exists, the
+result is `NodeStatus.UNKNOWN`. Build-time validation enforces that every
+`actual-state` pipeline contains exactly one `compare-state` step (§10 step 6a).
+
 ### 9.3 Fault Policy Registration
 
 Reuses #116's `YamlGraphRecorder.createFaultPolicy()` path. Each plugin's
@@ -497,18 +612,59 @@ injection.
 
 ### 9.4 CBR Registration
 
-`YamlPluginCbrRegistrar` creates per-type:
-- Feature extractors: `source: spec.replicas` → extracts the spec field value
-  and wraps as `FeatureValue.Numeric`
-- Outcome evaluators: `success: <expression>` → evaluated after reconciliation
-  to provide feedback to `CbrProposalTracker`
+The `cbr:` section is declarative metadata — it tells the CBR infrastructure
+what features and outcome signals are relevant for this node type. The
+declarations are registered as `CbrPluginMetadata` records at build time;
+they do not create runtime behavior in this spec's scope.
+
+**Feature declarations** describe what spec and actual-state properties are
+relevant for case similarity matching. A future feature-aware
+`ConfigurationRetriever` implementation will consume these declarations to
+build per-type similarity indices.
+
+**Outcome signal declarations** describe what constitutes success/failure
+after reconciliation. A future CBR Revise step (currently outside
+desiredstate scope — see CBR integration design §Deferred) will consume
+these declarations to provide per-type outcome feedback to
+`CbrProposalTracker`.
+
+The existing CBR infrastructure (`ConfigurationRetriever`,
+`ConfigurationAdapter`, `CbrFaultPolicy`, `CbrSituationRecompiler`) operates
+at the graph level. Per-type feature declarations extend this to type-aware
+similarity matching — designed in a companion CBR evolution spec (tracked
+under casehubio/casehub-ops#87 subsystem 5).
 
 ### 9.5 RAS Registration
 
-`YamlPluginRasRegistrar` registers per-type:
-- Situation definitions with the RAS Ganglia
-- Correlation key extractors for aggregate detection
-- Severity classification
+`YamlPluginRasRegistrar` builds `SituationDefinition` records from the
+plugin's `ras:` declarations and registers them via a synthetic
+`SituationDefinitionProvider` bean.
+
+The `ras:` YAML vocabulary maps to `SituationDefinition` record fields:
+
+| YAML field | SituationDefinition field | Mapping |
+|-----------|--------------------------|---------|
+| `name` | `situationId` | Prefixed: `plugin.<type>.<name>` |
+| `events` | `eventTypes` | Mapped to `DesiredStateEventTypes` constants |
+| `correlation-window` | `correlationWindow` | Parsed as `Duration` |
+| `chain-mode` | `chainMode` | See chain mode mapping below |
+| `trigger` | `triggerAction` | `create-case` → `TriggerAction.CreateCase(...)`, `emit-event` → `TriggerAction.EmitEvent(...)` |
+| `trigger-mode` | `triggerMode` | `fire-once` → `FireOnce()`, `repeating: <duration>` → `Repeating(duration)` |
+| `correlation-key` | `correlationKeyExpression` | Expression evaluator from interpolation |
+
+**Chain mode mapping:** The YAML chain mode declaration selects a `ChainMode`
+variant. The referenced ganglion is inferred from event types —
+`NODE_FAULTED`/`NODE_RECOVERED` events map to `NodeFaultGanglion.ID`,
+`NODE_DRIFTED` events map to `PersistentDriftGanglion.ID`:
+
+| YAML | ChainMode | Semantics |
+|------|-----------|-----------|
+| `streak: N` | `Streak(ganglionId, N)` | N consecutive positive evaluations |
+| `count: N` | `Count(ganglionId, N)` | N total positive evaluations in window |
+| `rate: { threshold: F, window: N }` | `Rate(ganglia, F, N)` | F fraction positive in window of N |
+
+Custom chain modes (And, Or, Threshold, Sequence) or custom ganglia fall
+back to Java `SituationDefinitionProvider` implementations.
 
 ## 10. Build-Time Validation Pipeline
 
@@ -529,6 +685,7 @@ BUILD TIME (YamlPluginProcessor)
    - All step primitive names exist (Java or YAML registry)
    - Composition cycle detection
    - Nesting depth check (≤ 5)
+6a. Validate actual-state pipelines contain exactly one `compare-state` step
 7. Validate interpolation references:
    - ${spec.*} references exist in spec schema or Java record
    - ${auth.*} names resolve to declared auth stanzas
@@ -536,13 +693,17 @@ BUILD TIME (YamlPluginProcessor)
    - ${result.*} references bind to a prior step's result name
    - Typo detection with "did you mean?" suggestions
 8. Validate auth stanzas:
+   - All `auth:` step references resolve to declared plugin auth stanzas
    - credentialRef format is valid
 9. Validate fault-policy section (reuses #116 validation)
 10. Validate CBR features:
     - source references resolve to spec fields or actual-state output
     - similarity types are known (numeric, categorical)
 11. Validate RAS situations:
-    - detect expressions are well-formed
+    - events map to known DesiredStateEventTypes constants
+    - chain-mode is a supported variant (streak, count, rate)
+    - correlation-window parses as valid Duration
+    - trigger and trigger-mode are known values
     - correlation-key references resolve
 12. Cross-file type coverage:
     - Every node type referenced in graph files has a provisioner
@@ -610,12 +771,19 @@ No migration transformers in v1.
 
 | Item | Rationale | Tracking |
 |------|-----------|----------|
-| Java extension primitives (RestClient, GraphQlClient, AuthProvider) | Depends on StepPrimitive SPI design — separate spec | casehubio/casehub-ops#87 subsystem 2 |
+| Java extension primitives (RestClient, GraphQlClient, AuthProvider, StreamingStateSource, RateLimiter, NodeSpecSchemaGenerator) | Depends on StepPrimitive SPI design — separate spec | casehubio/casehub-ops#87 subsystem 2 |
 | 10 concrete NodeSpec plugins | Depends on plugin schema + primitive registry | casehubio/casehub-ops#87 subsystem 3 |
-| CaseHub capability integration depth (Trust, Ledger, Engine, Blocks) | CBR/RAS declarative metadata is v1; deep integration is v2 | casehubio/casehub-ops#87 subsystem 5 |
+| CaseHub capability integration depth | CBR/RAS declarative metadata is v1; deep integration is v2. Per-capability: trust-weighted execution, audit trail (Ledger), case creation (Engine), event summarisation (Blocks) | casehubio/casehub-ops#87 subsystem 5 |
+| CBR runtime integration (feature-aware ConfigurationRetriever, outcome feedback) | Plugin `cbr:` sections declare metadata; retrieval/feedback infrastructure is a companion spec | casehubio/casehub-ops#87 subsystem 5 |
+| Custom RAS ganglia and advanced chain modes (And, Or, Threshold, Sequence) | v1 maps to existing ganglia (NodeFaultGanglion, PersistentDriftGanglion); custom ganglia need Java | Future issue |
 | Plugin testing model (CLI validator, WireMock integration) | Architecturally significant, companion spec | D13 |
 | IDE plugin support (VSCode/IntelliJ autocomplete, refactoring) | Depends on PluginSchemaRegistry being in place | Future issue |
 | `poll-until` and `paginate` primitives | Useful but not core — can be added as Java primitives later | Future issue |
+
+**Absorbed primitives from issue #87:** `auth-ref` is absorbed by the `auth:`
+stanza and `${auth.*}` interpolation (D6) — not a separate primitive.
+`retry` is absorbed by `on-error: retry` step control flow (§6.2) — not a
+separate primitive.
 
 ## 15. Decisions
 
