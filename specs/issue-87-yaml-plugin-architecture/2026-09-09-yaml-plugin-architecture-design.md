@@ -328,6 +328,17 @@ sub-expressions. `${result.response.body.message}` resolving to
 The expression `${result.response.body.message} contains "Ready"` evaluates
 as `<string:"Ready or true"> contains <string:"Ready">` → `true`.
 
+**Null handling:** When an interpolation reference resolves to a missing
+or null value (e.g., `${result.response.body.status.availableReplicas}`
+on an HTTP 500 error body that lacks this path), any comparison or
+operation involving that value evaluates to `false`. The `==` operator
+with two null operands evaluates to `true` (null equals null). Build-time
+cannot catch missing paths (they depend on runtime response shapes), but
+the runtime expression evaluator treats null as a sentinel that makes
+comparisons unsatisfiable. This is SQL-style null semantics — safe for
+`compare-state` because indeterminate values fall through all conditions
+to the `NodeStatus.UNKNOWN` fallback.
+
 Build-time validates expression syntax and that all interpolation references
 resolve. Complex logic that exceeds this vocabulary falls back to a Java
 `StepPrimitive`.
@@ -708,7 +719,9 @@ BUILD TIME (YamlPluginProcessor)
    - ${param.*} references exist in compound primitive parameters
    - ${result.*} references bind to a prior step's result name
    - Typo detection with "did you mean?" suggestions
-8. Validate auth stanzas:
+8. Validate auth stanzas (runs on expanded step pipelines, post compound
+   primitive expansion from step 6 — compound primitives may reference
+   auth names that the consuming plugin declares):
    - All `auth:` step references resolve to declared plugin auth stanzas
    - credentialRef format is valid
 9. Validate fault-policy section (reuses #116 validation)
@@ -808,7 +821,7 @@ separate primitive.
 
 ## 15. Decisions
 
-See `decisions.md` in this spec directory for the full decision log (D1–D14).
+See `decisions.md` in this spec directory for the full decision log (D1–D16).
 
 ## 16. References
 
