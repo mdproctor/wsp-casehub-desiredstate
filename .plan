@@ -1,0 +1,31 @@
+# Work Plan — issue-87-yaml-plugin-architecture
+
+## State
+branch: issue-87-yaml-plugin-architecture
+state: active
+project-sha: slot-creation
+date: 2026-09-09
+issue-repo: casehubio/casehub-ops
+covers: 87
+design-repo: project
+design-section-hashes: 
+flyway-next-v: unknown
+
+## Queue
+- [ ] casehubio/casehub-ops#87 — Issue #87 ← active
+  - [ ] Batch 1: Foundation
+    - [ ] Task 1: Module scaffolding + SPI types
+    - [ ] Task 2: Expression evaluator
+    - [ ] Task 3: Plugin interpolator
+  - [ ] Batch 2: Core Engine
+    - [ ] Task 4: YAML model + parser
+    - [ ] Task 5: Step executor + built-in primitives
+  - [ ] Batch 3: SPI Wiring
+    - [ ] Task 6: Provisioner + adapter
+    - [ ] Task 7: NodeSpec registry extension
+  - [ ] Batch 4: Build + Composition
+    - [ ] Task 8: Build-time validation processor
+    - [ ] Task 9: Compound primitive expansion
+  - [ ] Batch 5: Integration
+    - [ ] Task 10: Fault policy + CBR + RAS
+    - [ ] Task 11: End-to-end integration test
