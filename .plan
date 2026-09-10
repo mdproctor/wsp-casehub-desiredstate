@@ -17,9 +17,9 @@ flyway-next-v: unknown
     - [x] Task 1: Module scaffolding + SPI types
     - [x] Task 2: Expression evaluator
     - [x] Task 3: Plugin interpolator
-  - [ ] Batch 2: Core Engine
-    - [ ] Task 4: YAML model + parser
-    - [ ] Task 5: Step executor + built-in primitives
+  - [x] Batch 2: Core Engine
+    - [x] Task 4: YAML model + parser
+    - [x] Task 5: Step executor + built-in primitives
   - [ ] Batch 3: SPI Wiring
     - [ ] Task 6: Provisioner + adapter
     - [ ] Task 7: NodeSpec registry extension
