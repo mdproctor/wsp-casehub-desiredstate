@@ -20,9 +20,9 @@ flyway-next-v: unknown
   - [x] Batch 2: Core Engine
     - [x] Task 4: YAML model + parser
     - [x] Task 5: Step executor + built-in primitives
-  - [ ] Batch 3: SPI Wiring
-    - [ ] Task 6: Provisioner + adapter
-    - [ ] Task 7: NodeSpec registry extension
+  - [x] Batch 3: SPI Wiring
+    - [x] Task 6: Provisioner + adapter
+    - [x] Task 7: NodeSpec registry extension
   - [ ] Batch 4: Build + Composition
     - [ ] Task 8: Build-time validation processor
     - [ ] Task 9: Compound primitive expansion
