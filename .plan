@@ -23,9 +23,9 @@ flyway-next-v: unknown
   - [x] Batch 3: SPI Wiring
     - [x] Task 6: Provisioner + adapter
     - [x] Task 7: NodeSpec registry extension
-  - [ ] Batch 4: Build + Composition
-    - [ ] Task 8: Build-time validation processor
-    - [ ] Task 9: Compound primitive expansion
+  - [x] Batch 4: Build + Composition
+    - [x] Task 8: Build-time validation processor
+    - [x] Task 9: Compound primitive expansion
   - [ ] Batch 5: Integration
     - [ ] Task 10: Fault policy + CBR + RAS
     - [ ] Task 11: End-to-end integration test
