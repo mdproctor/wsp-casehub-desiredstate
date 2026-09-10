@@ -6,3 +6,4 @@
 | [2026-08-24-mdp01-typed-fault-policy.md](2026-08-24-mdp01-typed-fault-policy.md) | 2026-08-24 | TypedFaultPolicy sub-interface eliminates NodeType redundancy in tier(), decision review caught naming and consistency gaps |
 | [2026-08-25-mdp01-graph-rewriting-for-the-annotation-model.md](2026-08-25-mdp01-graph-rewriting-for-the-annotation-model.md) | 2026-08-25 | Designing @GraphRule — parameterized + imperative graph rewriting for the annotation compilation pipeline |
 | [2026-08-26-mdp01-building-the-rule-engine.md](2026-08-26-mdp01-building-the-rule-engine.md) | 2026-08-26 | GraphRuleEngine: cycle detection by delegation, no-op filtering for convergence, GoalCompiler wrapping |
+| [2026-09-09-mdp01-the-plugin-that-writes-itself.md](2026-09-09-mdp01-the-plugin-that-writes-itself.md) | 2026-09-09 | Plugin architecture from design through full implementation — step pipeline, build validation, compound primitives, and the yaml-core consolidation insight |
