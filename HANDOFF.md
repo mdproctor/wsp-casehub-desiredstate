@@ -2,28 +2,24 @@
 
 ## Last Session
 
-Completed Phase 1 of #116 (YAML language extensions). Batches 3-5 implemented this session: PatternEvaluator extraction, sealed interface hierarchy (ResolvedRule/ResolvedInvariant with Imperative/ParameterizedReflective/Declarative variants), YAML invariants with structural pattern assertions, and conditional inclusion (when:) with dependency safety.
+Designed and started implementing the YAML plugin architecture (#87). Full design cycle (brainstorming → 14 decisions → spec → 2 adversarial reviews) plus Batch 1 implementation (SPI foundation, expression evaluator, interpolation engine). 44 tests green.
 
-**Implementation this session (8 commits, Batches 3-5):**
-- **Batch 3 — Engine Infrastructure:** PatternEvaluator extracted from GraphRuleEngine and GraphInvariantEngine (~80 lines of duplicated expandChain logic eliminated). Wildcard `*` type matching in PatternMatchingSupport. Sealed interface hierarchy: `ResolvedRule` and `ResolvedInvariant` with three variants each (Imperative, ParameterizedReflective, Declarative). Old `ResolvedGraphRule`/`ResolvedGraphInvariant` records removed.
-- **Batch 4 — Declarative Invariants:** YamlInvariant/YamlPattern model types, build-time validation (match required, of-references checked, type validated). YamlInvariantConverter bridges YAML model to DeclarativeInvariant. GoalCompiler validates invariants via GraphInvariantEngine after graph construction. Custom message templates with `${match.*}` resolution. Pipeline-yaml integration test.
-- **Batch 5 — Conditional Inclusion:** `when:` field on YamlNode. `List<Object>` dependsOn supporting `{ node: "id", optional: true }` syntax. Build-time error when unconditional node depends on conditional node. Compile-time when: evaluation (truthy: true/yes/on/y/1, falsy: false/no/off/n/0). Optional dependencies to excluded nodes silently removed. Pipeline-yaml integration test with debug-validator node.
+**Key decisions:** dual Java/YAML NodeSpec declaration, step pipeline with named bindings (no workflow semantics at per-node level), full YAML-over-YAML-over-Java primitive composition from day one, named auth refs via CredentialResolver, build-time validation with runtime interpretation.
 
-**Phase 1 complete.** An operator can write a single YAML file with nodes, dependencies, fault policies (template-based escalation), structural invariants (pattern assertions), and conditional nodes — no Java required. 41 new tests across the session.
+**Batch 1 delivered (Foundation):** 3 modules created (plugin/api, plugin/runtime, plugin/deployment). SPI types: StepPrimitive, StepResult, StepContext, StepParameters, YamlNodeSpec. ExpressionEvaluator (recursive descent parser). PluginInterpolator (${spec.*}, ${auth.*}, ${result.*}, ${param.*}).
 
-**Next: Phase 2** — Declarative graph rules (structural rewriting in YAML) and lifecycle phases (build-then-operate). The sealed interface and PatternEvaluator infrastructure from Batch 3 directly enables this — `DeclarativeRule` variant is already in place but not yet wired for YAML.
+**Next: Batch 2 (Core Engine)** — YAML model + parser, StepPipelineExecutor, built-in primitives (rest-call, json-extract, compare-state, assert). Then Batch 3 (SPI Wiring), Batch 4 (Build Processor + Compound Primitives), Batch 5 (Integration).
 
 ## Branch
 
-`issue-116-yaml-language-design` — project + workspace
+`issue-87-yaml-plugin-architecture` — project + workspace
 
 ## References
 
 | Artifact | Path |
 |----------|------|
-| Design spec | `specs/issue-116-yaml-language-design/2026-08-27-yaml-language-extensions-design.md` |
-| Decisions (16) | `specs/issue-116-yaml-language-design/decisions.md` |
-| Competitive comparison | `specs/issue-116-yaml-language-design/2026-08-28-scales-down-comparison.md` |
-| Phase 1 plan | `plans/2026-08-28-phase1-yaml-extensions.md` |
-| Blog | `docs/blog/2026-08-28-mdp01-the-operator-surface-that-scales-down.md` |
-| Review workspaces | `~/reviews/casehub-desiredstate/yaml-language-extensions-*` |
+| Design spec | `specs/issue-87-yaml-plugin-architecture/2026-09-09-yaml-plugin-architecture-design.md` |
+| Decisions (14+2 from review) | `specs/issue-87-yaml-plugin-architecture/decisions.md` |
+| Implementation plan | `plans/2026-09-09-yaml-plugin-architecture.md` |
+| Blog | `blog/2026-09-09-mdp01-the-plugin-that-writes-itself.md` |
+| Review workspaces | `~/reviews/casehub-slots/issue-87-yaml-plugin-architecture-*` |
