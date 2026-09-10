@@ -26,6 +26,6 @@ flyway-next-v: unknown
   - [x] Batch 4: Build + Composition
     - [x] Task 8: Build-time validation processor
     - [x] Task 9: Compound primitive expansion
-  - [ ] Batch 5: Integration
-    - [ ] Task 10: Fault policy + CBR + RAS
-    - [ ] Task 11: End-to-end integration test
+  - [x] Batch 5: Integration
+    - [x] Task 10: Fault policy + CBR + RAS
+    - [x] Task 11: End-to-end integration test
