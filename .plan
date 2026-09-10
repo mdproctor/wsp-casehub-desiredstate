@@ -29,3 +29,4 @@ flyway-next-v: unknown
   - [x] Batch 5: Integration
     - [x] Task 10: Fault policy + CBR + RAS
     - [x] Task 11: End-to-end integration test
+- [ ] casehubio/casehub-ops#88 — Consolidate step pipeline into yaml-core
