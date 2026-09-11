@@ -66,7 +66,7 @@ java.net.http (RestCallPrimitive), Jackson (JSON parsing)
 - Produces: `StepParameters` value type (`of(Map)`, `getString(key)`, `getInt(key)`, `getMap(key)`, `getList(key)`, `get(key)`, `asMap()`)
 - Produces: `StepContext` with `specSource()`, `authSource()`, `resultSource()`, `paramSource()` → `VariableSource`, and `toResolver()` → `VariableResolver`, `addResult(name, StepResult)`, `resolve(prefixedRef)` → `Object`
 - Produces: `StepDef` record (`primitiveName`, `parameters`, `resultName`, `when`, `onError`, `maxRetries`, `backoff`)
-- Produces: `CompoundStepDef` record (`name`, `parameters` (Map of PluginFieldDef-equivalent), `steps`, `resultBinding`)
+- Produces: `CompoundStepDef` record (`name`, `parameters` (`Map<String, Object>` — parameter names only; field validation stays in desiredstate's `PluginFieldDef`), `steps` (`List<StepDef>`), `resultBinding`)
 - Produces: `ExpressionEvaluator.evaluate(String, Map<String,Object>)` → `boolean`
 
 - [ ] **Step 1: Create pom.xml for yaml-step-core**
@@ -364,6 +364,7 @@ Refs casehubio/casehub-ops#88"
 - Create: `yaml-step-core/src/main/java/io/casehub/yaml/step/PrimitiveRegistry.java`
 - Create: `yaml-step-core/src/main/java/io/casehub/yaml/step/CompoundStepExpander.java`
 - Test: `yaml-step-core/src/test/java/io/casehub/yaml/step/StepPipelineExecutorTest.java`
+- Test: `yaml-step-core/src/test/java/io/casehub/yaml/step/PrimitiveRegistryTest.java`
 - Test: `yaml-step-core/src/test/java/io/casehub/yaml/step/CompoundStepExpanderTest.java`
 
 **Interfaces:**
@@ -549,9 +550,42 @@ public class StepPipelineExecutor {
 }
 ```
 
-- [ ] **Step 4: Implement PrimitiveRegistry**
+- [ ] **Step 4: Write PrimitiveRegistryTest and implement**
 
-Port from desiredstate, change package. Uses `StepExecutionException` for unknown primitives.
+Port test from desiredstate. Simple: `resolve()` returns primitive, unknown name throws
+`StepExecutionException`, `contains()` checks membership.
+
+```java
+package io.casehub.yaml.step;
+
+import org.junit.jupiter.api.Test;
+import java.util.Map;
+import static org.assertj.core.api.Assertions.*;
+
+class PrimitiveRegistryTest {
+    @Test
+    void resolvesRegisteredPrimitive() {
+        StepPrimitive p = new StepPrimitive() {
+            @Override public String name() { return "test"; }
+            @Override public StepResult execute(StepParameters params, StepContext ctx) {
+                return StepResult.empty();
+            }
+        };
+        PrimitiveRegistry reg = PrimitiveRegistry.of(Map.of("test", p));
+        assertThat(reg.resolve("test")).isSameAs(p);
+        assertThat(reg.contains("test")).isTrue();
+    }
+
+    @Test
+    void throwsOnUnknown() {
+        PrimitiveRegistry reg = PrimitiveRegistry.of(Map.of());
+        assertThatThrownBy(() -> reg.resolve("missing"))
+            .isInstanceOf(StepExecutionException.class);
+    }
+}
+```
+
+Port implementation from desiredstate, change package. Uses `StepExecutionException`.
 
 - [ ] **Step 5: Write CompoundStepExpanderTest and implement**
 
@@ -579,6 +613,8 @@ Refs casehubio/casehub-ops#88"
 - Create: `yaml-step-core/src/main/java/io/casehub/yaml/step/primitives/JsonExtractPrimitive.java`
 - Create: `yaml-step-core/src/main/java/io/casehub/yaml/step/primitives/AssertPrimitive.java`
 - Test: `yaml-step-core/src/test/java/io/casehub/yaml/step/primitives/AssertPrimitiveTest.java`
+- Test: `yaml-step-core/src/test/java/io/casehub/yaml/step/primitives/RestCallPrimitiveTest.java`
+- Test: `yaml-step-core/src/test/java/io/casehub/yaml/step/primitives/JsonExtractPrimitiveTest.java`
 
 **Interfaces:**
 - Consumes: `StepPrimitive`, `StepResult`, `StepParameters`, `StepContext` (from Task 1)
@@ -644,17 +680,26 @@ uses `context.auth(authName)`.
 **JsonExtractPrimitive** — `context.resolve(inputRef)` for object access remains.
 Path is already resolved (no interpolation). No interpolator field.
 
-- [ ] **Step 4: Run full test suite**
+- [ ] **Step 4: Write RestCallPrimitiveTest and JsonExtractPrimitiveTest**
+
+`RestCallPrimitiveTest`: inject a mock `HttpClient` via constructor. Verify
+pre-resolved params are used directly (no `${...}` in URL/method). Verify auth
+header from `context.auth()`. Verify JSON body serialization.
+
+`JsonExtractPrimitiveTest`: verify `context.resolve()` for object access, dot-path
+traversal, null handling.
+
+- [ ] **Step 5: Run full test suite**
 
 Run: `mvn --batch-mode test -pl yaml-step-core`
 Expected: PASS
 
-- [ ] **Step 5: Install to local Maven repo**
+- [ ] **Step 6: Install to local Maven repo**
 
 Run: `mvn --batch-mode install -pl yaml-step-core`
 Expected: BUILD SUCCESS
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add yaml-step-core/

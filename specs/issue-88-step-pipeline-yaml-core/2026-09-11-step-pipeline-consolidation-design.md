@@ -363,7 +363,7 @@ Following the #128 pattern (platform-first, then consumer migration):
 1. Create `yaml-step-core` module with pom.xml, package structure
 2. Add generic types: `StepPrimitive`, `StepResult`, `StepParameters`, `StepDef`,
    `CompoundStepDef`, `StepExecutionException`, `InterpolationException`
-3. Add `StepContext` implementing `VariableSource`
+3. Add `StepContext` with `VariableSource` factory methods and `toResolver()`
 4. Add `ExpressionEvaluator`, `ExpressionParseException`
 5. Add `StepPipelineExecutor` (without `executeActualState`)
 6. Add `PrimitiveRegistry`, `CompoundStepExpander`
