@@ -13,3 +13,12 @@ flyway-next-v: none
 
 ## Queue
 - [ ] casehubio/casehub-ops#88 — Issue #88 ← active
+  - [ ] Batch 1: Platform
+    - [ ] Task 1: Create yaml-step-core SPI types + StepContext
+    - [ ] Task 2: Add executor registry expander
+    - [ ] Task 3: Add generic primitives
+  - [ ] Batch 2: Migration
+    - [ ] Task 4: Swap plugin/api to yaml-step-core
+    - [ ] Task 5: Migrate plugin/runtime + domain adapter
+  - [ ] Batch 3: Verification
+    - [ ] Task 6: Update deployment + full regression
