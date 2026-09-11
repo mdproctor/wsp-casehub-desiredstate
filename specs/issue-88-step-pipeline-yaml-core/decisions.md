@@ -46,3 +46,15 @@
 **Sources:** `plugin/runtime/primitives/RestCallPrimitive.java`, `plugin/runtime/primitives/JsonExtractPrimitive.java`, `plugin/runtime/primitives/AssertPrimitive.java` (generic), `plugin/runtime/primitives/CompareStatePrimitive.java` (domain — stays)
 **Exploration:** quick
 **Status:** captured
+
+## D5: plugin/api survives as thin re-export module
+
+**Choice:** Keep `casehub-desiredstate-plugin-api` as a module. It depends on yaml-step-core (transitive re-export of `StepPrimitive`, `StepResult`, `StepParameters`, `StepContext`, `ExpressionEvaluator`) and owns `YamlNodeSpec` (domain-coupled via `NodeSpec`). Library JARs implementing custom primitives depend on `plugin-api` to get both the SPI and domain adapter types.
+**Alternatives:**
+- Delete `plugin/api/` — consumers depend on yaml-step-core directly + desiredstate-api for YamlNodeSpec. Fragments the dependency declaration for no benefit. Library authors need to know two artifacts instead of one.
+**Rationale:** `plugin/api/` is the published contract for plugin authors. Changing its artifact ID would break downstream. Keeping it as a thin module that bridges yaml-step-core and desiredstate domain types preserves the contract while eliminating duplicated implementations.
+**Trade-offs:** One extra module in the dependency chain (plugin-api → yaml-step-core). Negligible — it's already there.
+**Depends on:** D1 (yaml-step-core exists), D2 (StepContext moves), D4 (primitives move)
+**Sources:** `plugin/api/pom.xml`, `plugin/api/YamlNodeSpec.java` (sole remaining domain type)
+**Exploration:** quick
+**Status:** captured
