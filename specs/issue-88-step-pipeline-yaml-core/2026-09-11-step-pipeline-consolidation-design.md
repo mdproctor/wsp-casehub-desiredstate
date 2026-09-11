@@ -85,92 +85,142 @@ rather than reimplementing it.
 | `JsonExtractPrimitive` | primitives | plugin/runtime/primitives | Generic — JSONPath extract |
 | `AssertPrimitive` | primitives | plugin/runtime/primitives | Generic — condition assert |
 
-### 4.2 StepContext as VariableSource
+### 4.2 StepContext as VariableSource Provider
 
-`StepContext` implements `VariableSource` from yaml-core. The existing prefix
-dispatch in `resolve(String prefixedRef)` maps to the `VariableSource` contract:
+yaml-core's `VariableSource` is a `@FunctionalInterface`:
+```java
+@FunctionalInterface
+public interface VariableSource {
+    String resolve(String name);  // name = key after prefix dot
+}
+```
+
+`VariableResolver` maps `${prefix.name}` → finds `VariableSource` for prefix →
+calls `source.resolve(name)`. The resolver handles regex matching, recursive
+map/list resolution, deferred prefixes, and default values (`${prefix.key:-default}`).
+
+StepContext does NOT implement `VariableSource` (it handles four prefixes, not
+one). Instead, it provides factory methods returning per-prefix `VariableSource`
+instances backed by its internal state:
 
 ```java
 package io.casehub.yaml.step;
 
+import io.casehub.yaml.core.resolver.VariableResolver;
 import io.casehub.yaml.core.resolver.VariableSource;
 
-public final class StepContext implements VariableSource {
+public final class StepContext {
 
     private final Map<String, Object> spec;
     private final Map<String, Map<String, String>> auth;
-    private final Map<String, StepResult> results;
+    private final Map<String, StepResult> results;  // mutable
     private final Map<String, Object> params;
 
-    @Override
-    public String resolve(String prefix, String key) {
-        Object value = switch (prefix) {
-            case "spec" -> resolveDeep(spec, key);
-            case "auth" -> resolveAuth(key);
-            case "result" -> resolveResult(key);
-            case "param" -> params.get(key);
-            default -> null;
+    public VariableSource specSource() {
+        return name -> {
+            Object value = resolveDeep(spec, name);
+            return value != null ? value.toString() : null;
         };
-        return value != null ? value.toString() : null;
+    }
+
+    public VariableSource authSource() {
+        return name -> {
+            Object value = resolveAuth(name);
+            return value != null ? value.toString() : null;
+        };
+    }
+
+    public VariableSource resultSource() {
+        // Closure over mutable results map — subsequent addResult()
+        // calls are visible through this source
+        return name -> {
+            Object value = resolveResult(name);
+            return value != null ? value.toString() : null;
+        };
+    }
+
+    public VariableSource paramSource() {
+        return name -> {
+            Object value = params.get(name);
+            return value != null ? value.toString() : null;
+        };
+    }
+
+    public VariableResolver toResolver() {
+        return new VariableResolver(
+            Map.of("spec", specSource(), "auth", authSource(),
+                   "result", resultSource(), "param", paramSource()),
+            Set.of());
+    }
+
+    public void addResult(String name, StepResult result) {
+        results.put(name, result);
     }
 
     // resolveDeep, resolveAuth, resolveResult — same logic as current
     // Builder — same pattern as current
-    // addResult — mutable accumulator for step results
 }
 ```
 
-The four prefixes (`spec`, `auth`, `result`, `param`) are registered as
-handled prefixes. Domain-specific prefixes (`var`, `fault`, `each`, `match`)
-are added by the desiredstate plugin layer when constructing the
-`VariableResolver`:
+`toResolver()` builds a base `VariableResolver` with the four step-pipeline
+prefixes. Domain layers extend it via `withScope()`:
 
 ```java
 // In desiredstate's YamlPluginProvisioner/YamlPluginActualStateAdapter
-VariableResolver resolver = new VariableResolver(
-    Map.of(
-        "spec", stepContext,   // StepContext handles spec/auth/result/param
-        "auth", stepContext,
-        "result", stepContext,
-        "param", stepContext,
-        "var", variableSource, // Domain-specific: variables from graph YAML
-        "fault", faultSource   // Domain-specific: fault context
-    ),
-    Set.of()  // No deferred prefixes
-);
+VariableResolver resolver = context.toResolver()
+    .withScope("var", variableSource)   // Domain: graph YAML variables
+    .withScope("fault", faultSource);   // Domain: fault context
 ```
+
+**Mutable result accumulation:** The `resultSource()` closure captures the
+mutable `results` map. When `StepPipelineExecutor` calls `context.addResult()`
+after each step, subsequent `${result.name.*}` references resolve correctly
+through the already-constructed `VariableResolver` — no rebuild needed.
+
+**Null handling:** `PluginInterpolator` resolves null to the string `"null"`.
+`VariableResolver` throws `UnresolvedVariableException`. Step pipeline sources
+return null for missing keys (not throw), which lets `VariableResolver` apply
+its default value syntax (`${spec.field:-fallback}`) or throw with context.
+This is stricter than the current behavior — missing references are caught
+rather than silently becoming `"null"`. Build-time validation already ensures
+all `${spec.*}` references exist, so runtime misses indicate genuine errors.
 
 ### 4.3 StepPipelineExecutor
 
-The generic executor retains `execute(List<StepDef>, StepContext)` → `StepResult`.
-The domain-specific `executeActualState()` method is removed.
+The generic executor takes a `PrimitiveRegistry` (stateless, reusable). The
+`VariableResolver` is per-invocation (contains per-node state via StepContext
+sources), so it's passed to `execute()`:
 
 ```java
 package io.casehub.yaml.step;
 
+import io.casehub.yaml.core.resolver.VariableResolver;
+
 public class StepPipelineExecutor {
 
     private final PrimitiveRegistry registry;
-    private final VariableResolver resolver;
 
-    public StepPipelineExecutor(PrimitiveRegistry registry,
-                                VariableResolver resolver) {
+    public StepPipelineExecutor(PrimitiveRegistry registry) {
         this.registry = registry;
-        this.resolver = resolver;
     }
 
-    public StepResult execute(List<StepDef> steps, StepContext context) {
+    public StepResult execute(List<StepDef> steps, StepContext context,
+                              VariableResolver resolver) {
         // Same sequential execution with when/retry/skip
-        // Condition evaluation uses resolver instead of PluginInterpolator
+        // resolver.resolveString() replaces PluginInterpolator.interpolate()
+        // resolver.resolveMap() replaces PluginInterpolator.interpolateMap()
+        // context.addResult() accumulates step results (visible via resolver)
     }
 }
 ```
 
-**Condition evaluation change:** `evaluateCondition(condition, context)` now
-uses `VariableResolver.resolveString()` for interpolation, then
-`ExpressionEvaluator.evaluate()` for boolean evaluation. The two-step flow
-(interpolate → evaluate) is unchanged; only the interpolation implementation
-changes.
+The domain-specific `executeActualState()` method is removed (D3).
+
+**Condition evaluation change:** `evaluateCondition(condition, context)` becomes
+`resolver.resolveString(condition, context) → ExpressionEvaluator.evaluate()`.
+The two-step flow (interpolate → evaluate) is unchanged; only the interpolation
+implementation changes. `VariableResolver.resolveMap()` replaces
+`PluginInterpolator.interpolateMap()` for step parameter resolution.
 
 ### 4.4 CompoundStepExpander
 

@@ -9,15 +9,16 @@
 **Exploration:** quick
 **Status:** captured
 
-## D2: PluginInterpolator → VariableResolver integration — StepContext as VariableSource
+## D2: PluginInterpolator → VariableResolver integration — StepContext as VariableSource provider
 
-**Choice:** StepContext implements yaml-core's `VariableSource` interface. `PluginInterpolator` is deleted. All interpolation flows through `VariableResolver` constructed with a StepContext-backed source. StepContext becomes a thin data holder + source adapter.
+**Choice:** StepContext provides per-prefix `VariableSource` factory methods (`specSource()`, `authSource()`, `resultSource()`, `paramSource()`) and a `toResolver()` convenience that builds a `VariableResolver`. `PluginInterpolator` is deleted. All interpolation flows through `VariableResolver`. Domain layers extend via `resolver.withScope("var", ...)`.
 **Alternatives:**
 - StepContext wraps VariableResolver internally — smaller diff in consumers but keeps a pass-through wrapper layer. Doesn't achieve full consolidation; two interpolation APIs coexist.
-**Rationale:** Same pattern that worked for #128 (desiredstate's domain context → VariableSource for the generic resolver). PluginInterpolator disappears entirely — single implementation for all `${...}` resolution across the platform. StepContext.resolve() can remain as a convenience but delegates to the VariableSource contract internally.
-**Trade-offs:** StepContext gains a yaml-core dependency (VariableSource interface). Acceptable — yaml-step-core already depends on yaml-core (D1).
+- StepContext implements VariableSource directly — not possible; VariableSource is a `@FunctionalInterface` handling one prefix, StepContext handles four.
+**Rationale:** Same pattern that worked for #128 (desiredstate's domain context → VariableSource for the generic resolver). PluginInterpolator disappears entirely — single implementation for all `${...}` resolution across the platform. `VariableResolver.resolveMap()` replaces `PluginInterpolator.interpolateMap()`. Null handling becomes stricter (throws vs silent "null") — acceptable since build-time validates all references.
+**Trade-offs:** StepContext gains a yaml-core dependency (VariableSource, VariableResolver). Acceptable — yaml-step-core already depends on yaml-core (D1). Stricter null handling is a behavioral change but improves error detection.
 **Depends on:** D1 (yaml-step-core depends on yaml-core)
-**Sources:** `plugin/api/PluginInterpolator.java` (81 lines, deletion target), `plugin/api/StepContext.java` (138 lines, refactor target), `io.casehub.yaml.core.resolver.VariableResolver`, `io.casehub.yaml.core.resolver.VariableSource`, #128 migration pattern (VariableResolver integration in YamlGraphRecorder)
+**Sources:** `plugin/api/PluginInterpolator.java` (81 lines, deletion target), `plugin/api/StepContext.java` (138 lines, refactor target), `io.casehub.yaml.core.resolver.VariableResolver` (193 lines, prefix routing + regex + resolveMap/List), `io.casehub.yaml.core.resolver.VariableSource` (`@FunctionalInterface`, `String resolve(String name)`), #128 migration pattern (VariableResolver integration in YamlGraphRecorder)
 **Exploration:** quick
 **Status:** captured
 
