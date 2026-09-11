@@ -2,7 +2,7 @@
 
 ## State
 branch: issue-88-step-pipeline-yaml-core
-state: scaffolded
+state: active
 project-sha: 99943f46d816474d10e2a9cf09b3fbcd479163ee
 date: 2026-09-11
 issue-repo: casehubio/casehub-ops
@@ -13,12 +13,12 @@ flyway-next-v: none
 
 ## Queue
 - [ ] casehubio/casehub-ops#88 — Issue #88 ← active
-  - [ ] Batch 1: Platform
-    - [ ] Task 1: Create yaml-step-core SPI types + StepContext
-    - [ ] Task 2: Add executor registry expander
-    - [ ] Task 3: Add generic primitives
-  - [ ] Batch 2: Migration
-    - [ ] Task 4: Swap plugin/api to yaml-step-core
-    - [ ] Task 5: Migrate plugin/runtime + domain adapter
-  - [ ] Batch 3: Verification
-    - [ ] Task 6: Update deployment + full regression
+  - [x] Batch 1: Platform
+    - [x] Task 1: Create yaml-step-core SPI types + StepContext
+    - [x] Task 2: Add executor registry expander
+    - [x] Task 3: Add generic primitives
+  - [x] Batch 2: Migration
+    - [x] Task 4: Swap plugin/api to yaml-step-core
+    - [x] Task 5: Migrate plugin/runtime + domain adapter
+  - [x] Batch 3: Verification
+    - [x] Task 6: Update deployment + full regression
