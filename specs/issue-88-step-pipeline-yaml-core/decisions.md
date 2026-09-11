@@ -20,3 +20,16 @@
 **Sources:** `plugin/api/PluginInterpolator.java` (81 lines, deletion target), `plugin/api/StepContext.java` (138 lines, refactor target), `io.casehub.yaml.core.resolver.VariableResolver`, `io.casehub.yaml.core.resolver.VariableSource`, #128 migration pattern (VariableResolver integration in YamlGraphRecorder)
 **Exploration:** quick
 **Status:** captured
+
+## D3: Step model types — generic StepDef/CompoundStepDef in yaml-step-core
+
+**Choice:** Extract `PluginStepDef` and `CompoundPrimitiveDef` to yaml-step-core as `StepDef` and `CompoundStepDef` (drop "Plugin" prefix). Remove `executeActualState()` from the generic `StepPipelineExecutor` — it returns `NodeStatus` (domain type). Desiredstate keeps a thin domain adapter that wraps the generic executor and maps `StepResult` → `NodeStatus`.
+**Alternatives:**
+- Keep `executeActualState` on the generic executor with a generic return type (e.g., `<T> T executeAndMap(steps, context, Function<StepResult, T>)`) — over-engineers the API for one consumer. The domain adapter is simpler and keeps the generic executor clean.
+- Leave step model types in desiredstate, have yaml-step-core define interfaces — adds indirection without benefit since the records are already pure Java.
+**Rationale:** `PluginStepDef` and `CompoundPrimitiveDef` are pure Java records with zero domain imports. They belong with the executor that consumes them. `executeActualState()` is a 12-line method with a single domain import (`NodeStatus`) — it's the adapter, not the engine. Removing it from the generic executor is the same pattern as `DesiredStateGraphAdapter` wrapping `GraphView`.
+**Trade-offs:** Desiredstate gains a thin adapter class. `PluginStepDef` → `StepDef` rename ripples through plugin/runtime and plugin/deployment.
+**Depends on:** D1 (types move to yaml-step-core)
+**Sources:** `plugin/model/PluginStepDef.java` (13 lines, pure record), `plugin/model/CompoundPrimitiveDef.java` (11 lines, pure record), `plugin/runtime/StepPipelineExecutor.java:47-59` (executeActualState — domain-coupled method)
+**Exploration:** quick
+**Status:** captured
