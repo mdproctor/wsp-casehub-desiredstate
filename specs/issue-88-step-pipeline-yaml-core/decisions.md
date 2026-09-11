@@ -33,3 +33,16 @@
 **Sources:** `plugin/model/PluginStepDef.java` (13 lines, pure record), `plugin/model/CompoundPrimitiveDef.java` (11 lines, pure record), `plugin/runtime/StepPipelineExecutor.java:47-59` (executeActualState — domain-coupled method)
 **Exploration:** quick
 **Status:** captured
+
+## D4: Generic primitives — ship with yaml-step-core
+
+**Choice:** `RestCallPrimitive`, `JsonExtractPrimitive`, `AssertPrimitive` move into yaml-step-core alongside the executor and registry. No separate primitives module. `CompareStatePrimitive` stays in desiredstate (domain-coupled via `NodeStatus`).
+**Alternatives:**
+- Separate `yaml-step-primitives` module — keeps yaml-step-core dependency-light but adds a module for three small classes that every consumer will need. YAGNI for one consumer.
+- Split yaml-step-core into api/runtime (api has SPI, runtime has primitives + executor) — premature; split when a second consumer surfaces that doesn't want the HTTP dependency.
+**Rationale:** A step pipeline without `rest-call` and `assert` is unusable. The generic primitives are the reason the module exists. One consumer today doesn't justify the split.
+**Trade-offs:** yaml-step-core gains an HTTP client dependency (likely java.net.http or a thin wrapper). Acceptable — step pipelines are runtime execution, HTTP is expected.
+**Depends on:** D1 (module placement)
+**Sources:** `plugin/runtime/primitives/RestCallPrimitive.java`, `plugin/runtime/primitives/JsonExtractPrimitive.java`, `plugin/runtime/primitives/AssertPrimitive.java` (generic), `plugin/runtime/primitives/CompareStatePrimitive.java` (domain — stays)
+**Exploration:** quick
+**Status:** captured
