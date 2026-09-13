@@ -103,3 +103,15 @@
 **Sources:** api/ module (existing routers), runtime/ module (existing compositors), first-principles analysis of module boundary criteria
 **Exploration:** deep-analysis
 **Status:** captured
+
+## D10: LifecycleManager interaction — composition wraps, doesn't replace
+
+**Choice:** Composition engine is the top-level entry point. It calls each domain's compiler, gets CompilationResult per domain. Domain-level ordering is the composition engine's responsibility. Within-domain phase transitions remain LifecycleManager's responsibility. Two layers, each with a single concern.
+**Alternatives:**
+- Replace LifecycleManager — composition engine subsumes phase transition logic. Simpler call stack but conflates domain ordering and phase transitions, requires reimplementing phase CAS logic that already works.
+**Rationale:** LifecycleManager doesn't change — it already handles CompilationResult.Lifecycle correctly with CAS-based phase transitions. The composition engine adds domain orchestration above it. Each component has one job.
+**Trade-offs:** Two layers of lifecycle management. Consumer must understand which layer handles what. Mitigated by the flattening strategy (D6) which hides domain orchestration in single-process mode.
+**Depends on:** D1 (hierarchical architecture), D6 (transparent flattening)
+**Sources:** LifecycleManager.java (CAS phase transitions), ReconciliationLoop.java
+**Exploration:** quick
+**Status:** captured
