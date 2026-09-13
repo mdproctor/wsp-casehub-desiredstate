@@ -142,21 +142,38 @@ public class CrossDomainCompositionEngine implements GlobalReconciliationListene
     private final ReconciliationLoop reconciliationLoop;
     private final DesiredStateGraphFactory graphFactory;
     private final String mode; // "flattened" or "hierarchical"
+    private volatile boolean composed = false;
 
-    // Per-domain state — immutable after compose()
-    // Thread safety: domains map is structurally immutable after startup.
-    // DomainState is an immutable record; phase advancement replaces the
-    // map entry atomically via ConcurrentHashMap.compute().
-    private final ConcurrentHashMap<DomainId, DomainState> domains = new ConcurrentHashMap<>();
+    // --- Domain configuration (global, immutable after compose()) ---
 
-    // Recompiler → domain reverse index. A domain can register multiple
-    // recompilers; this maps each recompiler instance to its owning domain.
-    // IdentityHashMap because SituationRecompiler identity is instance-based.
-    // Structurally immutable after compose() — no thread safety concern.
+    // Registration metadata — provides, requires, original CompilationResult
+    private final Map<DomainId, DomainRegistration> domainConfigs = new LinkedHashMap<>();
+
+    // Recompiler → domain reverse index. IdentityHashMap because
+    // SituationRecompiler identity is instance-based.
     private final Map<SituationRecompiler, DomainId> recompilerIndex = new IdentityHashMap<>();
+
+    // Priority-sorted recompiler list — preserves chain-of-responsibility
+    // semantics from SituationRecompilerEngine. Built at compose() from
+    // all domains' situationRecompilers, sorted by priority() ascending.
+    private List<Map.Entry<SituationRecompiler, DomainId>> sortedRecompilers;
+
+    // Cross-domain recompilers — priority-sorted, tried after domain-specific
+    private List<SituationRecompiler> sortedCrossDomainRecompilers;
 
     // Provides/requires topology — immutable after compose()
     private List<DomainId> topologicalOrder;
+
+    // --- Per-tenant runtime state ---
+
+    // Phase tracking per tenant, per domain. Follows the per-tenant keying
+    // pattern of ReconciliationLoop (ConcurrentHashMap<String, TenantLoop>)
+    // and LifecycleManager (ConcurrentHashMap<String, TenantLifecycle>).
+    private final ConcurrentHashMap<String, TenantCompositionState> tenantStates
+        = new ConcurrentHashMap<>();
+
+    // Serializes recompose paths — see Thread Safety Model below
+    private final Object recomposeLock = new Object();
 
     public void registerDomain(DomainRegistration registration) { ... }
     void compose(String tenancyId) { ... }
@@ -168,12 +185,43 @@ public class CrossDomainCompositionEngine implements GlobalReconciliationListene
 }
 ```
 
-**Thread safety model:** After `compose()` fires at startup, the `domains` map entries are updated only by two paths:
+**`TenantCompositionState`** holds per-tenant per-domain phase tracking:
 
-1. `onReconciliationCycleCompleted` (scheduler thread) — advances a domain's phase
-2. `handleReplan` (workflow executor thread) — replaces a domain's CompilationResult after recompilation
+```java
+record DomainPhaseState(CompilationResult currentResult, int phaseIndex) {
+    DesiredStateGraph currentGraph() {
+        return switch (currentResult) {
+            case CompilationResult.SingleGraph sg -> sg.graph();
+            case CompilationResult.Lifecycle lc -> lc.phases().get(phaseIndex).graph();
+        };
+    }
+    boolean hasLifecycle() { return currentResult instanceof CompilationResult.Lifecycle; }
+    boolean isAtFinalPhase() {
+        return !(currentResult instanceof CompilationResult.Lifecycle lc)
+            || phaseIndex >= lc.phases().size() - 1;
+    }
+    DomainPhaseState withAdvancedPhase() { return new DomainPhaseState(currentResult, phaseIndex + 1); }
+    DomainPhaseState withResult(CompilationResult r) { return new DomainPhaseState(r, 0); }
+}
 
-Both paths use `domains.compute(domainId, ...)` which serializes updates to the same domain. `recompose()` reads all domain states; since each `DomainState` is an immutable record, reads are always consistent at the per-domain level. Cross-domain consistency during recompose is guaranteed because both callers hold the recompose path — `onReconciliationCycleCompleted` batches all phase advances before calling `recompose()`, and `handleReplan` is the single writer for recompilation results.
+// Per-tenant: one DomainPhaseState per domain
+record TenantCompositionState(Map<DomainId, DomainPhaseState> phases) {
+    TenantCompositionState withPhase(DomainId id, DomainPhaseState newPhase) {
+        var copy = new LinkedHashMap<>(phases);
+        copy.put(id, newPhase);
+        return new TenantCompositionState(Map.copyOf(copy));
+    }
+}
+```
+
+`DomainPhaseState` is an immutable record; phase advancement creates a new instance. `TenantCompositionState` is also immutable — updates create a new instance with the modified domain entry.
+
+**Thread safety model:** After `compose()` fires, the engine's runtime state (per-tenant phase tracking and recompose) is accessed from two threads:
+
+1. **Scheduler thread:** `onReconciliationCycleCompleted` → advance phases → `recompose()`
+2. **Workflow executor thread:** `handleReplan` → replace domain result → `recompose()`
+
+Both paths must be serialized because `recompose()` reads ALL domain states, builds a composed graph, and calls `LifecycleManager.updateDesired()`. Concurrent recompose calls produce a last-writer-wins race. The engine serializes the entire advance-then-recompose and replace-then-recompose paths with `synchronized(recomposeLock)`. This is correct for the expected contention level — recompilation is rare; cycle completion is periodic but fast.
 
 ### 4.1 Registration (startup)
 
@@ -220,6 +268,22 @@ public class DeploymentDomainRegistrar {
 ```
 
 Each domain's startup observer uses default CDI priority (or explicit `@Priority` below `PLATFORM_AFTER + 1000`). The composition engine's own startup observer fires at `@Priority(PLATFORM_AFTER + 1000)` — after all domain registrations — and calls `compose()`.
+
+**Late registration guard:** `registerDomain()` checks the `composed` flag (set by `compose()`) and rejects late registrations:
+
+```java
+public void registerDomain(DomainRegistration registration) {
+    if (composed) {
+        throw new IllegalStateException(
+            "Cannot register domain '" + registration.domainId()
+            + "' — composition already completed. "
+            + "Ensure domain registrar @Priority is below PLATFORM_AFTER + 1000.");
+    }
+    domainConfigs.put(registration.domainId(), registration);
+}
+```
+
+This is defense-in-depth against misconfigured `@Priority` values — a domain observer firing after the composition engine's observer would silently register without being composed.
 
 ### 4.2 Startup validation (D8)
 
@@ -272,14 +336,17 @@ Default mode. Activated by `desiredstate.composition.mode=flattened` (or by omis
 The engine builds the composed graph by overlaying all domain graphs in topological order:
 
 ```java
-DesiredStateGraph composed = graphFactory.empty();
-for (DomainId domainId : topologicalOrder) {
-    DomainState state = domains.get(domainId);
-    composed = composed.overlay(state.currentGraph());
-}
-// Add cross-domain edges (§4.3)
-for (CrossDomainEdge edge : computeCrossDomainEdges()) {
-    composed = composed.withDependency(edge.dependency());
+DesiredStateGraph recompose(String tenancyId, TenantCompositionState tenantState) {
+    DesiredStateGraph composed = graphFactory.empty();
+    for (DomainId domainId : topologicalOrder) {
+        DomainPhaseState phaseState = tenantState.phases().get(domainId);
+        composed = composed.overlay(phaseState.currentGraph());
+    }
+    // Add cross-domain edges (§4.3)
+    for (CrossDomainEdge edge : computeCrossDomainEdges()) {
+        composed = composed.withDependency(edge.dependency());
+    }
+    return composed;
 }
 ```
 
@@ -310,33 +377,44 @@ Each domain registers a `CompilationResult` — either `SingleGraph` or `Lifecyc
 
 **CompilationResult type for LifecycleManager:** In composed mode, the engine always passes `CompilationResult.single(composedGraph)` to `LifecycleManager` — never `Lifecycle`. Per-domain lifecycle tracking is the composition engine's responsibility, not LifecycleManager's. LifecycleManager becomes a pass-through to `ReconciliationLoop` — it receives a single flat graph and delegates `start()` / `updateDesired()` directly. This avoids dual-listener conflict: only the composition engine's `GlobalReconciliationListener` tracks per-domain phase advancement. LifecycleManager's per-tenant `ReconciliationListener` is never set in composed mode because no `Lifecycle` CompilationResult reaches it.
 
-The engine implements `GlobalReconciliationListener`. After each full reconciliation cycle, it checks each domain's phase completion:
+The engine implements `GlobalReconciliationListener`. After each full reconciliation cycle, it checks each domain's phase completion for the given tenant:
 
 ```java
 @Override
 public void onReconciliationCycleCompleted(
         String tenancyId, DesiredStateGraph desired, ActualState actual) {
-    boolean recomposeNeeded = false;
+    TenantCompositionState tenantState = tenantStates.get(tenancyId);
+    if (tenantState == null) return;
 
-    for (DomainState state : domains.values()) {
-        if (!state.hasLifecycle() || state.isAtFinalPhase()) continue;
+    synchronized (recomposeLock) {
+        boolean recomposeNeeded = false;
+        TenantCompositionState current = tenantStates.get(tenancyId);
 
-        Phase currentPhase = state.currentPhase();
-        CompletionCondition condition = currentPhase.completionCondition();
+        for (var entry : current.phases().entrySet()) {
+            DomainId domainId = entry.getKey();
+            DomainPhaseState phaseState = entry.getValue();
+            if (!phaseState.hasLifecycle() || phaseState.isAtFinalPhase()) continue;
 
-        // Filter actual state to this domain's nodes
-        DesiredStateGraph domainGraph = state.currentGraph();
-        if (condition.isComplete(domainGraph, actual)) {
-            state.advancePhase();
-            recomposeNeeded = true;
+            CompilationResult.Lifecycle lc = (CompilationResult.Lifecycle) phaseState.currentResult();
+            Phase currentPhase = lc.phases().get(phaseState.phaseIndex());
+            CompletionCondition condition = currentPhase.completionCondition();
+
+            DesiredStateGraph domainGraph = phaseState.currentGraph();
+            if (condition.isComplete(domainGraph, actual)) {
+                current = current.withPhase(domainId, phaseState.withAdvancedPhase());
+                recomposeNeeded = true;
+            }
         }
-    }
 
-    if (recomposeNeeded) {
-        recompose(tenancyId);
+        if (recomposeNeeded) {
+            tenantStates.put(tenancyId, current);
+            recompose(tenancyId, current);
+        }
     }
 }
 ```
+
+All phase advances for a tenant are batched into a single immutable `TenantCompositionState` update, followed by one `recompose()` call, all within `synchronized(recomposeLock)`. This eliminates the concurrent-recompose race between the scheduler thread and the workflow executor thread.
 
 `GlobalReconciliationListener` fires from full `reconcile()` only (not type-filtered `reconcileTypes()`). This is correct — `CompletionCondition` evaluates against full actual state.
 
@@ -371,18 +449,31 @@ The composition engine provides a `handleReplan()` method:
 public Optional<CompilationResult> handleReplan(
         String tenancyId, ActualState actual,
         ActiveSituation situation, DesiredStateGraphFactory factory) {
-    for (SituationRecompiler recompiler : recompilerIndex.keySet()) {
-        DomainId domainId = recompilerIndex.get(recompiler);
-        DomainState domainState = domains.get(domainId);
-        DesiredStateGraph domainGraph = domainState.currentGraph();
+    TenantCompositionState tenantState = tenantStates.get(tenancyId);
+    if (tenantState == null) return Optional.empty();
+
+    // Iterate in priority order — preserves SituationRecompilerEngine's
+    // chain-of-responsibility semantics (lower priority fires first)
+    for (var entry : sortedRecompilers) {
+        SituationRecompiler recompiler = entry.getKey();
+        DomainId domainId = entry.getValue();
+        DomainPhaseState phaseState = tenantState.phases().get(domainId);
+        DesiredStateGraph domainGraph = phaseState.currentGraph();
 
         Optional<CompilationResult> result = recompiler.recompile(
             tenancyId, domainGraph, actual, situation, factory);
         if (result.isPresent()) {
-            domains.compute(domainId, (id, old) -> old.withResult(result.get()));
-            DesiredStateGraph composed = recompose();
-            lifecycleManager.updateDesired(tenancyId, CompilationResult.single(composed));
-            return Optional.of(CompilationResult.single(composed));
+            synchronized (recomposeLock) {
+                TenantCompositionState current = tenantStates.get(tenancyId);
+                current = current.withPhase(domainId,
+                    current.phases().get(domainId).withResult(result.get()));
+                tenantStates.put(tenancyId, current);
+                DesiredStateGraph composed = recompose(tenancyId, current);
+                lifecycleManager.updateDesired(tenancyId,
+                    CompilationResult.single(composed));
+            }
+            return Optional.of(CompilationResult.single(
+                tenantStates.get(tenancyId).phases().get(domainId).currentGraph()));
         }
     }
     // Try cross-domain recompilers (§5.6.3)
@@ -390,7 +481,10 @@ public Optional<CompilationResult> handleReplan(
 }
 ```
 
-Key difference from `SituationRecompilerEngine`: domain-specific recompilers receive their **domain graph** (not the composed graph), so they only see and modify their own nodes.
+Key differences from `SituationRecompilerEngine`:
+- Domain-specific recompilers receive their **domain graph** (not the composed graph), so they only see and modify their own nodes
+- Iteration follows `sortedRecompilers` — a priority-sorted list built at `compose()` time, preserving the chain-of-responsibility contract that existing `SituationRecompiler` implementations rely on (lower `priority()` fires first, first match wins)
+- State update and recompose are serialized within `synchronized(recomposeLock)` to prevent concurrent-recompose races
 
 `DesiredStateReplanDispatch` injects `CrossDomainCompositionEngine` (optional — `Instance<CrossDomainCompositionEngine>`). When composition is active (engine has registrations), it delegates to `engine.handleReplan()`. Otherwise, it falls through to the existing `SituationRecompilerEngine` + `LifecycleManager.updateDesired()` path:
 
@@ -424,8 +518,13 @@ public void registerCrossDomainRecompiler(SituationRecompiler recompiler) { ... 
 **API contract:**
 - Cross-domain recompilers receive the **composed graph** (all domains merged) as the `current` parameter
 - They return a `CompilationResult` that replaces the **entire** composed graph
-- Per-domain phase tracking is reset when a cross-domain recompiler fires — the returned CompilationResult becomes the new composed state, and per-domain state is re-derived by partitioning the new graph by NodeType against domain provides sets
-- Cross-domain recompilers are tried after all domain-specific recompilers return `Optional.empty()` — they are the fallback in the chain, not a separate chain
+- Cross-domain recompilers are tried after all domain-specific recompilers return `Optional.empty()` — they are the fallback in the chain, not a separate chain. Within the cross-domain set, iteration follows `sortedCrossDomainRecompilers` (priority-sorted, first match wins)
+
+**Phase reset semantics:** When a cross-domain recompiler fires, per-domain lifecycle phase tracking is abandoned for the affected tenant. Specifically:
+1. The returned graph replaces the composed graph directly via `LifecycleManager.updateDesired()`
+2. Each domain's `DomainPhaseState` is replaced with `DomainPhaseState(CompilationResult.single(partition), 0)` where `partition` is the subset of the returned graph matching the domain's `provides` NodeTypes
+3. Lifecycle phases are NOT re-entered — each domain is treated as SingleGraph until a subsequent domain-specific recompilation restores Lifecycle phases
+4. This is equivalent to a full re-composition from scratch with each domain holding a SingleGraph derived from its partition of the returned graph
 
 **Interaction with `SituationRecompilerEngine`:** The composition engine takes over the entire recompiler dispatch in composed mode (§5.6.1). `SituationRecompilerEngine` is not called directly — domain-specific recompilers are iterated by the composition engine (with domain graph scoping), and cross-domain recompilers are iterated as a fallback. `SituationRecompilerEngine`'s CDI-discovered recompilers are mapped to domains at registration time; any CDI-discovered recompiler not registered with a domain is treated as a cross-domain recompiler.
 
@@ -471,14 +570,31 @@ innerLoop.start(tenancyId, domainGraph);
 
 Each inner loop uses the same `ActualStateAdapterRouter`, `NodeProvisionerRouter`, `MergedEventSource`, and `FaultPolicyEngine` as the meta-loop — these are already multi-domain-ready. The routers dispatch by `NodeType`, so inner loops only trigger adapters/provisioners for their domain's node types.
 
+**Inner loop cleanup (deprovision):** When the meta-loop deprovisions a domain-level node, `DomainNodeProvisioner.deprovision()` stops the inner loop and reclaims its resources:
+
+```java
+public DeprovisionResult deprovision(DesiredNode node, DeprovisionContext context) {
+    DomainNodeSpec spec = (DomainNodeSpec) node.spec();
+    ReconciliationLoop innerLoop = activeInnerLoops.remove(spec.domainId());
+    if (innerLoop != null) {
+        innerLoop.stop(context.tenancyId());
+        innerLoop.shutdown();
+    }
+    return DeprovisionResult.success();
+}
+```
+
+`ReconciliationLoop.stop(tenancyId)` cancels all scheduled futures (resync timers, debounce timers), cancels the `MergedEventSource` subscription, and removes the `TenantLoop` entry. `ReconciliationLoop.shutdown()` shuts down the `ScheduledExecutorService`. Together these reclaim all resources that the Builder-created inner loop allocated.
+
+The `DomainNodeProvisioner` maintains a `Map<DomainId, ReconciliationLoop> activeInnerLoops` to track inner loops it has provisioned. Inner loops created via Builder are NOT registered in the CDI singleton `ReconciliationLoop`'s `loops` map, so the CDI `@PreDestroy` shutdown hook does not reach them — explicit cleanup via deprovision is required.
+
 ### 6.3 Domain readiness (D3)
 
 The `DomainNodeProvisioner` reports a domain-level node as `PRESENT` when the domain's `CompletionCondition` is satisfied. The condition evaluates against the inner loop's desired graph and the actual state:
 
 ```java
-CompletionCondition condition = registration.readinessCondition() != null
-    ? registration.readinessCondition()
-    : CompletionCondition.allPresent(); // default: all nodes PRESENT
+// readinessCondition is guaranteed non-null (§3.2 — Builder defaults to allPresent())
+CompletionCondition condition = registration.readinessCondition();
 
 if (condition.isComplete(innerDesiredGraph, actualState)) {
     return ProvisionResult.success();
@@ -515,7 +631,13 @@ For domains returning `CompilationResult.SingleGraph`, no lifecycle management i
 
 ## 7. Same-Tenant Composition (D11)
 
-Composed domains share the same `tenancyId`. The composition engine produces one composed graph (or meta-graph) per tenant. All domain nodes within a composition belong to the same tenant.
+Composed domains share the same `tenancyId`. All domain nodes within a composition belong to the same tenant.
+
+**Per-tenant state model:** The engine stores per-domain phase tracking per tenant via `ConcurrentHashMap<String, TenantCompositionState>` — the same per-tenant keying pattern used by `ReconciliationLoop` (`ConcurrentHashMap<String, TenantLoop>`) and `LifecycleManager` (`ConcurrentHashMap<String, TenantLifecycle>`).
+
+`compose(tenancyId)` initializes a `TenantCompositionState` for the given tenant with each domain's initial `DomainPhaseState` (phase index 0). Domain configuration (provides, requires, topology) is global and tenant-independent. Phase progression is tenant-scoped — tenant A advancing Infra to phase 2 does not affect tenant B's Infra phase.
+
+Multiple tenants can share one engine instance. Each tenant's composed graph evolves independently.
 
 If a domain provisions shared infrastructure across tenants, it operates as an independent `ReconciliationLoop` — not as a composed domain within a tenant's graph. Cross-tenant coordination is an orchestration concern above the desired-state runtime.
 
