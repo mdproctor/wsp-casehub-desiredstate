@@ -13,3 +13,13 @@ flyway-next-v: none
 
 ## Queue
 - [ ] casehubio/casehub-desiredstate#140 — Issue #140 ← active
+  - [ ] Batch 1: Foundation
+    - [ ] Task 1: DomainId and DomainRegistration types
+    - [ ] Task 2: Registration and validation engine
+  - [ ] Batch 2: Flattened
+    - [ ] Task 3: Overlay composition and edge creation
+    - [ ] Task 4: Per-domain lifecycle tracking
+    - [ ] Task 5: SituationRecompiler integration
+  - [ ] Batch 3: Hierarchical
+    - [ ] Task 6: Meta-loop and DomainNodeProvisioner
+    - [ ] Task 7: End-to-end integration tests
