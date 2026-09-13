@@ -15,11 +15,7 @@ active-issue: 231
 ## Queue
 - [x] casehubio/blocks#231 — extract summarisation types to summarisation-api
 - [x] casehubio/blocks#232 — CloudEvent-Summarisation bridge module
-- [ ] casehubio/blocks#233 — summarisation YAML surface with composable runtime ← active
-  - [ ] Batch 1: Batch 2 YAML Surface
-    - [ ] Task 1: YAML model + PipelineCompiler + build extension
-    - [ ] Task 2: 5 built-in summariser types
-    - [ ] Task 3: SummariserRegistry + Tier 2 discovery
+- [x] casehubio/blocks#233 — summarisation YAML surface with composable runtime
 - [ ] casehubio/blocks#234 — logistics hub example YAML-first pipeline
   - [ ] Batch 1: Batch 2 YAML Surface
     - [ ] Task 1: YAML pipeline + RAS situation definitions
