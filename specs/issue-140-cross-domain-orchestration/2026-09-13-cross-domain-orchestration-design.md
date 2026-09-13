@@ -399,7 +399,10 @@ CompletionCondition condition = registration.readinessCondition() != null
 if (condition.isComplete(innerDesiredGraph, actualState)) {
     return ProvisionResult.success();
 }
-return ProvisionResult.pending(); // not ready yet — retry next cycle
+// Not ready yet — return Failed so the meta-loop retries on next cycle.
+// The meta-loop's fault policy is configured to suppress escalation for
+// domain-level nodes, treating "not ready" as a transient condition.
+return ProvisionResult.failed("domain '" + domainId + "' not ready — awaiting convergence");
 ```
 
 The default condition (`allPresent()`) means a domain-level node transitions to PRESENT when all of its inner nodes are PRESENT. Domains with softer readiness semantics override via `readinessCondition` in their `DomainRegistration`.
