@@ -32,7 +32,9 @@ The design introduces a `CrossDomainCompositionEngine` that sits above `Lifecycl
 
 The flattened mode is the default because it reuses existing primitives (`overlay()`, `TransitionPlanner`, single `ReconciliationLoop`) and delivers the same performance and debugging experience as single-domain. Hierarchical mode activates when the consumer explicitly opts in via configuration.
 
-**Push model rationale:** The `GoalCompiler<G>` type erasure problem exists only when the composition layer calls `compile()`. With push, domains compile themselves — `GoalCompiler<InfraGoals>`, `GoalCompiler<DeploymentGoals>` etc. are called by domain code that knows the type parameter. The composition engine receives `CompilationResult` (no generic parameter). This pattern is already validated by the spatial example: `AttackGoalCompiler`, `DefenseGoalCompiler`, and `DistributionGoalCompiler` each compile independently with their own blueprint types, and results merge via `overlay()` in `ForceDistributionTest`.
+**Push model rationale:** The `GoalCompiler<G>` type erasure problem exists only when the composition layer calls `compile()`. With push, domains compile themselves — `GoalCompiler<InfraGoals>`, `GoalCompiler<DeploymentGoals>` etc. are called by domain code that knows the type parameter. The composition engine receives `CompilationResult` (no generic parameter). The spatial example validates the underlying `overlay()` primitive: `ForceDistributionTest.zoneSplitStructuralChange()` merges graphs from independent compilations of the same compiler type via `overlay()`. Cross-compiler overlay (different compilers with different node types) is a new composition pattern that requires dedicated test coverage (§10).
+
+**Mode immutability:** The composition mode (`flattened` or `hierarchical`) is determined at startup and cannot be changed at runtime. Switching modes would require tearing down and rebuilding the entire reconciliation infrastructure — inner loops, meta-graph, domain state tracking. The mode is read once during the composition engine's startup observer and is immutable thereafter.
 
 ## 3. New Types
 
@@ -76,6 +78,7 @@ public record DomainRegistration(
     public DomainRegistration {
         java.util.Objects.requireNonNull(domainId);
         java.util.Objects.requireNonNull(compilationResult);
+        java.util.Objects.requireNonNull(readinessCondition);
         provides = Set.copyOf(provides);
         requires = Set.copyOf(requires);
         situationRecompilers = situationRecompilers != null
@@ -91,7 +94,7 @@ public record DomainRegistration(
         private final CompilationResult compilationResult;
         private Set<NodeType> provides = Set.of();
         private Set<NodeType> requires = Set.of();
-        private CompletionCondition readinessCondition;
+        private CompletionCondition readinessCondition = CompletionCondition.allPresent();
         private List<SituationRecompiler> situationRecompilers = List.of();
 
         private Builder(DomainId domainId, CompilationResult compilationResult) {
@@ -123,17 +126,9 @@ public record DomainRegistration(
 }
 ```
 
-**Default readiness condition:** When `readinessCondition` is null, the engine uses a default: all nodes PRESENT and zero active faults (nodes whose status is not `ABSENT` or `UNKNOWN`). This is the strictest safe default. Domains that need softer semantics (e.g., tolerating a degraded monitoring sidecar) provide an explicit condition.
+**Default readiness condition:** The Builder defaults `readinessCondition` to `CompletionCondition.allPresent()`. The compact constructor enforces non-null — every `DomainRegistration` has an explicit condition, eliminating null checks in the engine and all downstream consumers. Domains that need softer semantics (e.g., tolerating a degraded monitoring sidecar) provide an explicit condition via the Builder.
 
-```java
-static CompletionCondition allPresentZeroFaults() {
-    return (desired, actual) -> desired.nodes().keySet().stream()
-        .allMatch(id -> actual.statuses().getOrDefault(id, NodeStatus.UNKNOWN)
-            == NodeStatus.PRESENT);
-}
-```
-
-This reuses the existing `CompletionCondition.allPresent()` static factory. The "zero faults" aspect is implicit — a faulted node transitions away from PRESENT in the actual state, so `allPresent()` already captures this.
+**Invariant:** Any node with an active fault has a non-PRESENT status in ActualState. `PROVISION_FAILED` leaves the node `ABSENT`; `NODE_DEGRADED` and `NODE_DRIFTED` set `DRIFTED`. `allPresent()` implicitly enforces zero faults through this invariant — it checks `actual.statuses()`, not `ReconciliationLoop.activeProblems`. These are different tracking mechanisms with different semantics: `statuses()` is the ground truth from `ActualStateAdapter`, while `activeProblems` is the reconciliation loop's internal fault tracking set.
 
 ## 4. CrossDomainCompositionEngine
 
@@ -148,12 +143,20 @@ public class CrossDomainCompositionEngine implements GlobalReconciliationListene
     private final DesiredStateGraphFactory graphFactory;
     private final String mode; // "flattened" or "hierarchical"
 
-    // Per-domain state
-    private final Map<DomainId, DomainState> domains = new LinkedHashMap<>();
-    private final Map<DomainId, SituationRecompiler> recompilerIndex = new HashMap<>();
+    // Per-domain state — immutable after compose()
+    // Thread safety: domains map is structurally immutable after startup.
+    // DomainState is an immutable record; phase advancement replaces the
+    // map entry atomically via ConcurrentHashMap.compute().
+    private final ConcurrentHashMap<DomainId, DomainState> domains = new ConcurrentHashMap<>();
 
-    // Provides/requires topology
-    private List<DomainId> topologicalOrder; // computed at compose()
+    // Recompiler → domain reverse index. A domain can register multiple
+    // recompilers; this maps each recompiler instance to its owning domain.
+    // IdentityHashMap because SituationRecompiler identity is instance-based.
+    // Structurally immutable after compose() — no thread safety concern.
+    private final Map<SituationRecompiler, DomainId> recompilerIndex = new IdentityHashMap<>();
+
+    // Provides/requires topology — immutable after compose()
+    private List<DomainId> topologicalOrder;
 
     public void registerDomain(DomainRegistration registration) { ... }
     void compose(String tenancyId) { ... }
@@ -164,6 +167,13 @@ public class CrossDomainCompositionEngine implements GlobalReconciliationListene
         String tenancyId, DesiredStateGraph desired, ActualState actual) { ... }
 }
 ```
+
+**Thread safety model:** After `compose()` fires at startup, the `domains` map entries are updated only by two paths:
+
+1. `onReconciliationCycleCompleted` (scheduler thread) — advances a domain's phase
+2. `handleReplan` (workflow executor thread) — replaces a domain's CompilationResult after recompilation
+
+Both paths use `domains.compute(domainId, ...)` which serializes updates to the same domain. `recompose()` reads all domain states; since each `DomainState` is an immutable record, reads are always consistent at the per-domain level. Cross-domain consistency during recompose is guaranteed because both callers hold the recompose path — `onReconciliationCycleCompleted` batches all phase advances before calling `recompose()`, and `handleReplan` is the single writer for recompilation results.
 
 ### 4.1 Registration (startup)
 
@@ -241,6 +251,8 @@ For each domain D with non-empty requires:
 
 This ensures that domain D's root nodes cannot be planned by `TransitionPlanner` until all of domain P's T-typed nodes are provisioned. The ordering is structural — no runtime readiness polling needed in flattened mode.
 
+**Intentional coarseness:** The edge creation is deliberately coarse — ALL root nodes of the dependent domain, regardless of their individual type-level needs, wait for ALL provider nodes of the required type. This means a webhook root node in the Deployment domain would also wait for all namespace nodes, even if webhooks don't need namespaces. This is correct: domain-level ordering expresses "domain D cannot start until domain P's required types exist." Fine-grained per-node cross-domain dependencies (e.g., "this specific agent needs this specific namespace") are expressed within a single domain by placing both nodes in the same graph. If a subset of a domain's nodes genuinely has no cross-domain dependency, that subset should be a separate domain. The provides/requires vocabulary is intentionally at the domain granularity, not the node granularity.
+
 **Example:** Infra provides `{K8S_NAMESPACE, K8S_DEPLOYMENT, DATABASE_CLUSTER}`. Deployment requires `{K8S_NAMESPACE}`. The engine finds infra's namespace nodes (e.g., `infra:ns-prod`, `infra:ns-staging`) and deployment's root nodes (e.g., `deploy:agent-main`). It adds edges: `deploy:agent-main → infra:ns-prod`, `deploy:agent-main → infra:ns-staging`. Deployment's agent node now depends on infra's namespace nodes — `TransitionPlanner` provisions namespaces first.
 
 ### 4.4 Single-domain passthrough
@@ -290,11 +302,13 @@ The composed graph is a single `DesiredStateGraph` with its own version counter.
 
 Cross-domain faults are faults in a single graph. `FaultPolicyEngine` evaluates all fault policies against the merged graph. Policies from different domains compose naturally — they handle different `NodeType`/`FaultType` combinations. No new fault propagation mechanism needed.
 
-**Trust assumption:** Composed domains are trusted — a fault policy from domain A has visibility into domain B's nodes. This is a feature for trusted composition (same-team domains, e.g., casehub-ops). For untrusted domain composition, fault policy scoping via `NodeType`-based filtering in `FaultPolicyEngine` would be needed — a future evolution.
+**Trust assumption:** Composed domains are trusted — a fault policy from domain A has visibility into domain B's nodes. This is a feature for trusted composition (same-team domains, e.g., casehub-ops). For untrusted domain composition, fault policy scoping via `NodeType`-based filtering in `FaultPolicyEngine` would be needed — tracked as #143.
 
 ### 5.5 Per-domain lifecycle tracking (D13)
 
 Each domain registers a `CompilationResult` — either `SingleGraph` or `Lifecycle(List<Phase>)`. The engine tracks each domain's current phase index. The composed graph at any moment is the overlay of each domain's current-phase graph plus cross-domain edges.
+
+**CompilationResult type for LifecycleManager:** In composed mode, the engine always passes `CompilationResult.single(composedGraph)` to `LifecycleManager` — never `Lifecycle`. Per-domain lifecycle tracking is the composition engine's responsibility, not LifecycleManager's. LifecycleManager becomes a pass-through to `ReconciliationLoop` — it receives a single flat graph and delegates `start()` / `updateDesired()` directly. This avoids dual-listener conflict: only the composition engine's `GlobalReconciliationListener` tracks per-domain phase advancement. LifecycleManager's per-tenant `ReconciliationListener` is never set in composed mode because no `Lifecycle` CompilationResult reaches it.
 
 The engine implements `GlobalReconciliationListener`. After each full reconciliation cycle, it checks each domain's phase completion:
 
@@ -340,22 +354,80 @@ engine.registerDomain(DomainRegistration.builder(
     .build());
 ```
 
-The composition engine maps each recompiler to its domain at registration time. When a `SituationRecompiler` fires and returns a `CompilationResult`:
+The composition engine maps each recompiler to its domain at registration time via the `recompilerIndex` (`Map<SituationRecompiler, DomainId>`). When a `SituationRecompiler` fires and returns a `CompilationResult`:
 
-1. The engine identifies which domain the recompiler belongs to
-2. Replaces that domain's current `CompilationResult` with the new one
-3. Re-merges all domains' current graphs + cross-domain edges
-4. Calls `LifecycleManager.updateDesired(tenancyId, newComposedResult)`
+1. The engine identifies which domain the recompiler belongs to via `recompilerIndex`
+2. Replaces that domain's `DomainState` with the new `CompilationResult` via `domains.compute()`
+3. Re-merges all domains' current graphs + cross-domain edges → new composed graph
+4. Calls `LifecycleManager.updateDesired(tenancyId, CompilationResult.single(newComposedGraph))`
 
-**Cascade detection:** If a domain's recompilation changes its provides set (e.g., removes a `NodeType`), the engine checks whether downstream domains' requires are still satisfied. Initial behavior: fail fast with descriptive error. Cascade recompilation (triggering downstream domains' recompilation) is a future evolution.
+#### 5.6.1 DesiredStateReplanDispatch interception
 
-**Cross-domain recompilers** (spanning multiple domains' types) are registered directly with the engine, not via a domain registration:
+`DesiredStateReplanDispatch` (engine-adapter/) is the only production caller of `SituationRecompilerEngine.recompile()`. In single-domain mode, it calls `recompilerEngine.recompile()` and then `lifecycleManager.updateDesired()`. In composed mode, this flow must be intercepted to prevent a domain-specific CompilationResult from replacing the entire composed graph.
+
+The composition engine provides a `handleReplan()` method:
 
 ```java
-engine.registerCrossDomainRecompiler(crossDomainRecompiler);
+public Optional<CompilationResult> handleReplan(
+        String tenancyId, ActualState actual,
+        ActiveSituation situation, DesiredStateGraphFactory factory) {
+    for (SituationRecompiler recompiler : recompilerIndex.keySet()) {
+        DomainId domainId = recompilerIndex.get(recompiler);
+        DomainState domainState = domains.get(domainId);
+        DesiredStateGraph domainGraph = domainState.currentGraph();
+
+        Optional<CompilationResult> result = recompiler.recompile(
+            tenancyId, domainGraph, actual, situation, factory);
+        if (result.isPresent()) {
+            domains.compute(domainId, (id, old) -> old.withResult(result.get()));
+            DesiredStateGraph composed = recompose();
+            lifecycleManager.updateDesired(tenancyId, CompilationResult.single(composed));
+            return Optional.of(CompilationResult.single(composed));
+        }
+    }
+    // Try cross-domain recompilers (§5.6.3)
+    return handleCrossDomainReplan(tenancyId, actual, situation, factory);
+}
 ```
 
-These operate on the composed graph and return a `CompilationResult` that replaces the entire composed graph.
+Key difference from `SituationRecompilerEngine`: domain-specific recompilers receive their **domain graph** (not the composed graph), so they only see and modify their own nodes.
+
+`DesiredStateReplanDispatch` injects `CrossDomainCompositionEngine` (optional — `Instance<CrossDomainCompositionEngine>`). When composition is active (engine has registrations), it delegates to `engine.handleReplan()`. Otherwise, it falls through to the existing `SituationRecompilerEngine` + `LifecycleManager.updateDesired()` path:
+
+```java
+// In DesiredStateReplanDispatch.replan():
+Optional<CompilationResult> newResult;
+if (compositionEngine.isResolvable() && compositionEngine.get().isActive()) {
+    newResult = compositionEngine.get().handleReplan(
+        tenancyId, actual, situation, graphFactory);
+} else {
+    newResult = recompilerEngine.recompile(
+        tenancyId, current, actual, situation, graphFactory);
+    newResult.ifPresent(r -> lifecycleManager.updateDesired(tenancyId, r));
+}
+```
+
+**Impact:** `DesiredStateReplanDispatch` gains a new optional `Instance<CrossDomainCompositionEngine>` injection. This is the only change to existing code outside the new `composition` package. `SituationRecompilerEngine` itself is unchanged.
+
+#### 5.6.2 Cascade detection
+
+If a domain's recompilation changes its provides set (e.g., removes a `NodeType`), the engine checks whether downstream domains' requires are still satisfied. Initial behavior: fail fast with descriptive error. Cascade recompilation is tracked in #141.
+
+#### 5.6.3 Cross-domain recompilers
+
+Cross-domain recompilers (spanning multiple domains' types) are registered directly with the engine, not via a domain registration:
+
+```java
+public void registerCrossDomainRecompiler(SituationRecompiler recompiler) { ... }
+```
+
+**API contract:**
+- Cross-domain recompilers receive the **composed graph** (all domains merged) as the `current` parameter
+- They return a `CompilationResult` that replaces the **entire** composed graph
+- Per-domain phase tracking is reset when a cross-domain recompiler fires — the returned CompilationResult becomes the new composed state, and per-domain state is re-derived by partitioning the new graph by NodeType against domain provides sets
+- Cross-domain recompilers are tried after all domain-specific recompilers return `Optional.empty()` — they are the fallback in the chain, not a separate chain
+
+**Interaction with `SituationRecompilerEngine`:** The composition engine takes over the entire recompiler dispatch in composed mode (§5.6.1). `SituationRecompilerEngine` is not called directly — domain-specific recompilers are iterated by the composition engine (with domain graph scoping), and cross-domain recompilers are iterated as a fallback. `SituationRecompilerEngine`'s CDI-discovered recompilers are mapped to domains at registration time; any CDI-discovered recompiler not registered with a domain is treated as a cross-domain recompiler.
 
 The `SituationRecompiler` SPI in api/ is unchanged — no `domainId()` method, no awareness of cross-domain composition. The composition engine in runtime/ knows which recompilers belong to which domain because domains push them at registration.
 
@@ -382,10 +454,22 @@ The meta-graph is fed to a dedicated `ReconciliationLoop` instance — the meta-
 When the meta-loop provisions a domain-level node, the `DomainNodeProvisioner`:
 
 1. Extracts the domain's `CompilationResult` from the `DomainNodeSpec`
-2. Creates an inner `ReconciliationLoop` (or delegates to `LifecycleManager` for lifecycle phases)
-3. Starts the inner loop with the domain's compiled graph and the shared `tenancyId`
+2. Creates an inner `ReconciliationLoop` via `ReconciliationLoop.Builder` (NOT CDI)
+3. If the CompilationResult is `Lifecycle`, manages phase transitions directly (§6.5)
+4. Starts the inner loop with the domain's current-phase graph and the shared `tenancyId`
 
-Each inner loop uses the same `ActualStateAdapterRouter`, `NodeProvisionerRouter`, `MergedEventSource`, and `FaultPolicyEngine` as the outer loop — these are already multi-domain-ready.
+**CDI wiring for inner loops:** Inner `ReconciliationLoop` instances are created via the existing `ReconciliationLoop.Builder`, not CDI injection. The Builder requires `TransitionPlanner`, `TransitionExecutor`, `ActualStateAdapterRouter`, `FaultPolicyEngine`, and `MergedEventSource` — all shared CDI singletons that the `DomainNodeProvisioner` receives via constructor injection and passes to each Builder. The `NodeProvisionerRouter` is set via `Builder.router()`. `GlobalReconciliationListener` list is set via `Builder.globalListeners()` — inner loops get an empty list (or a domain-specific listener for phase advancement). Inner loops create their own `ScheduledExecutorService` (via the Builder's build path), independent of the meta-loop's scheduler.
+
+```java
+ReconciliationLoop innerLoop = ReconciliationLoop.builder(
+        planner, executor, actualStateAdapterRouter, faultPolicyEngine, mergedEventSource)
+    .router(provisionerRouter)
+    .globalListeners(List.of(domainPhaseListener))
+    .build();
+innerLoop.start(tenancyId, domainGraph);
+```
+
+Each inner loop uses the same `ActualStateAdapterRouter`, `NodeProvisionerRouter`, `MergedEventSource`, and `FaultPolicyEngine` as the meta-loop — these are already multi-domain-ready. The routers dispatch by `NodeType`, so inner loops only trigger adapters/provisioners for their domain's node types.
 
 ### 6.3 Domain readiness (D3)
 
@@ -411,11 +495,23 @@ In hierarchical mode, `CompletionCondition` scoping by `requires` types means th
 
 ### 6.4 Fault isolation
 
-In hierarchical mode, each inner loop has its own fault handling cycle. A fault in domain A's inner loop is handled by domain A's fault policies. Cross-domain fault propagation (domain A's fault affecting domain B) is not supported in the initial implementation — inner loops are independent. Cross-domain fault escalation (e.g., domain A's persistent failure triggers domain B's degradation) is a future evolution via meta-loop fault policies.
+In hierarchical mode, each inner loop has its own fault handling cycle. A fault in domain A's inner loop is handled by domain A's fault policies. Cross-domain fault propagation (domain A's fault affecting domain B) is not supported in the initial implementation — inner loops are independent. Cross-domain fault escalation (e.g., domain A's persistent failure triggers domain B's degradation) via meta-loop fault policies is tracked as #142.
 
 ### 6.5 Per-domain lifecycle in hierarchical mode
 
-If a domain returns `CompilationResult.Lifecycle`, `LifecycleManager` manages phase transitions within the inner loop — exactly as it works today for single-domain deployments. No special handling needed.
+If a domain returns `CompilationResult.Lifecycle`, the `DomainNodeProvisioner` manages phase transitions directly — not `LifecycleManager`. `LifecycleManager` is an `@ApplicationScoped` singleton bound to the CDI `ReconciliationLoop` instance; it cannot manage phases for Builder-created inner loops.
+
+The `DomainNodeProvisioner` implements lifecycle phase management for inner loops by:
+
+1. Extracting the phases from `CompilationResult.Lifecycle`
+2. Starting the inner `ReconciliationLoop` with the first phase's graph
+3. Setting a `ReconciliationListener` on the inner loop that evaluates each phase's `CompletionCondition`
+4. On phase completion, calling `innerLoop.compareAndSetDesired()` to advance to the next phase's graph
+5. Reporting the domain-level node as `PRESENT` when the final phase's `CompletionCondition` is satisfied
+
+This is equivalent to LifecycleManager's `onCycleCompleted()` logic — the same CAS-based phase transition, the same `CompletionCondition` evaluation — but integrated into the provisioner rather than requiring a separate LifecycleManager instance per inner loop.
+
+For domains returning `CompilationResult.SingleGraph`, no lifecycle management is needed — the inner loop starts with the single graph and the domain-level node is PRESENT when the domain's `readinessCondition` is satisfied.
 
 ## 7. Same-Tenant Composition (D11)
 
@@ -454,16 +550,19 @@ At startup, if the engine has zero registrations but `Instance<NodeProvisioner>`
 | Component | Change |
 |-----------|--------|
 | `ReconciliationLoop` | None. Receives composed or single-domain graphs as before. |
-| `LifecycleManager` | None. Receives `CompilationResult` from the composition engine instead of directly from domain code. Phase transition CAS logic unchanged. |
+| `LifecycleManager` | None. Receives `CompilationResult.single()` from the composition engine in composed mode. Phase transition CAS logic unchanged but not exercised in composed mode. |
 | `TransitionPlanner` | None. Cross-domain edges are standard `Dependency` instances. |
-| `FaultPolicyEngine` | None. `List<FaultPolicy>` already collects from all domains via CDI. |
+| `FaultPolicyEngine` | None. `List<FaultPolicy>` already collects from all domains via CDI. No CDI ambiguity — multi-domain-ready as-is. |
 | `ActualStateAdapterRouter` | None. Already dispatches by `NodeType` across domains. |
 | `NodeProvisionerRouter` | None. Already dispatches by `NodeType` across domains. |
-| `MergedEventSource` | None. Already merges multiple `EventSource` streams. |
-| `SituationRecompilerEngine` | The composition engine wraps it — SituationRecompiler results flow through the composition engine for re-merging (D10). The `SituationRecompilerEngine` class itself is unchanged. |
+| `MergedEventSource` | None. Already merges multiple `EventSource` streams via `Multi.merge()`. No CDI ambiguity — multi-domain-ready as-is. |
+| `SituationRecompilerEngine` | None. The composition engine takes over recompiler dispatch in composed mode (§5.6.1). `SituationRecompilerEngine` class itself is unchanged. |
+| `DesiredStateReplanDispatch` | Gains optional `Instance<CrossDomainCompositionEngine>` injection. When composition is active, delegates replan to the engine instead of directly to `SituationRecompilerEngine` + `LifecycleManager` (§5.6.1). |
 | api/ module | Gains `DomainId` value type only. |
 | runtime/ module | Gains `io.casehub.desiredstate.runtime.composition` package. |
 | Example modules | No changes required. Examples remain single-domain. A new cross-domain example could demonstrate the composition pattern. |
+
+**CDI qualification (issue #140 requirement):** FaultPolicy and EventSource CDI ambiguity is already resolved by existing infrastructure — `FaultPolicyEngine` takes `List<FaultPolicy>` via CDI collection injection, and `MergedEventSource` composes multiple `EventSource` streams via `Multi.merge()`. `GoalCompiler` CDI ambiguity is sidestepped by the push model (§2). No CDI qualifier annotations are needed for any of these SPIs.
 
 ### 9.1 ops/app migration path
 
@@ -496,15 +595,18 @@ engine.registerDomain(DomainRegistration.builder(DomainId.of("deployment"), depl
 
 | Component | Approach |
 |-----------|----------|
-| `DomainRegistration` validation | Unit: null checks, empty provides/requires, builder defaults |
+| `DomainRegistration` validation | Unit: null checks, empty provides/requires, builder defaults, non-null readinessCondition |
 | Provides/requires graph | Unit: duplicate provides detection, cycle detection (Kahn's), unsatisfied requires |
 | Cross-domain edge creation | Unit: edges from requiring domain's roots to provider's typed nodes; empty requires = no edges |
 | Node ID uniqueness | Unit: collision with different specs → error; collision with same specs → allowed |
+| Multi-compiler overlay | Unit: overlay graphs from different compiler types with different NodeTypes; verify merged graph contains all node types and correct dependency edges. Validates the cross-compiler overlay pattern claimed in §2. |
 | Flattened composition | Unit: overlay + edges produce correct merged graph; single-domain passthrough |
 | Per-domain lifecycle tracking | Unit: phase advancement via `GlobalReconciliationListener`; re-composition on phase change |
-| SituationRecompiler re-merge | Unit: domain recompilation triggers correct re-merge; cascade detection |
+| SituationRecompiler re-merge | Unit: domain recompilation triggers correct re-merge; cascade detection. Verify domain-specific recompilers receive domain graph, not composed graph. |
+| DesiredStateReplanDispatch delegation | Unit: verify replan delegates to composition engine when active; verify fallback to SituationRecompilerEngine when composition is inactive |
 | Hierarchical meta-loop | Integration: domain-level nodes provisioned in topological order; inner loops started |
 | Hierarchical readiness | Integration: `CompletionCondition` gates downstream domain activation |
+| Hierarchical lifecycle | Integration: domain with `CompilationResult.Lifecycle` — inner loop phases advance via `DomainNodeProvisioner`; domain-level node PRESENT after final phase |
 | End-to-end flattened | Integration: multi-domain app with infra→deployment ordering; provision namespaces before agents |
 | End-to-end hierarchical | Integration: same multi-domain app in hierarchical mode |
 | Backward compat | Integration: existing single-domain examples unchanged with composition engine on classpath |
@@ -515,6 +617,7 @@ engine.registerDomain(DomainRegistration.builder(DomainId.of("deployment"), depl
 - **Pre-release project:** No backward compatibility concern for new API additions.
 - **ops/app migration:** Replace `ApplicationGoalCompiler` with per-domain registrars. Remove direct `ReconciliationLoop.start()` calls. Let the composition engine manage composition and lifecycle.
 - **Example modules:** No changes required. They remain single-domain demonstrations.
+- **Multi-process deployment:** Out of scope for this design. The hierarchical architecture provides the logical foundation — domain-level abstraction, readiness gates, independent fault isolation — that naturally extends to multi-process deployment with distributed coordination (event bus, shared state store). Tracked as #144.
 
 ## 12. References
 
@@ -556,3 +659,7 @@ engine.registerDomain(DomainRegistration.builder(DomainId.of("deployment"), depl
 - casehub-desiredstate#140 — this design
 - casehub-ops#23 — first consumer: cross-domain dependency graphs
 - casehub-desiredstate#51, #52 — predecessor: multi-domain SPI routing (ActualStateAdapterRouter, MergedEventSource)
+- casehub-desiredstate#141 — deferred: cascade recompilation when provides set changes
+- casehub-desiredstate#142 — deferred: cross-domain fault escalation in hierarchical mode
+- casehub-desiredstate#143 — deferred: fault policy scoping for untrusted domain composition
+- casehub-desiredstate#144 — deferred: multi-process deployment model
