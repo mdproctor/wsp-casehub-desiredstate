@@ -44,3 +44,62 @@
 **Sources:** DesiredStateGraph.overlay(), DesiredStateGraph.connect(), TransitionPlanner ordering, first-principles analysis of flattened vs hierarchical modes
 **Exploration:** deep-analysis
 **Status:** captured
+
+## D5: Goal loading — configuration-driven
+
+**Choice:** DomainDescriptor declares a configuration key/path. The composition layer passes a shared configuration source. Each descriptor extracts its domain-specific goals and compiles internally.
+**Alternatives:**
+- Programmatic — consumer constructs each domain's goals explicitly, keyed by domain ID. More control but requires the consumer to know every domain's goal type, defeating the descriptor abstraction.
+**Rationale:** Keeps the consumer decoupled — one config document describes the whole system, domains self-serve from it. Aligns with YAML and annotation surfaces (declarative config → compiled graph).
+**Trade-offs:** Domains must agree on a configuration source format. The shared config must be flexible enough for diverse domain goal structures.
+**Sources:** InfraGoalCompiler.java, DeploymentGoalCompiler.java, YAML surface (YamlGraphRecorder), annotation surface
+**Exploration:** quick
+**Status:** captured
+
+## D6: Flattening strategy — transparent for single-process
+
+**Choice:** Composition layer detects single-process deployment (all descriptors in one JVM), merges domain graphs into one via overlay(), adds type-based cross-domain edges, feeds merged graph to a single ReconciliationLoop. Meta-loop doesn't run. Consumer never sees domain-level nodes.
+**Alternatives:**
+- Always hierarchical — even in single-process, meta-loop runs with domain-level nodes and inner loops. Consistent mental model but adds overhead (multiple loop instances, domain-level node synthesis) when a merged graph suffices.
+**Rationale:** Simpler for the common case. Single-process ops deployments get the same performance and debugging experience as today's single-domain case. Hierarchical machinery only activates when genuinely needed.
+**Trade-offs:** Flattened path is a distinct code path that needs separate testing. Behaviour differences between modes must be documented.
+**Depends on:** D1 (hierarchical architecture), D4 (type-level deps manifest as edges in flattened mode)
+**Sources:** DesiredStateGraph.overlay(), TransitionPlanner, ReconciliationLoop
+**Exploration:** quick
+**Status:** captured
+
+## D7: CDI discovery — automatic
+
+**Choice:** CrossDomainCompositionEngine is @ApplicationScoped, injects Instance<DomainDescriptor>, wires at startup. One descriptor = single-domain passthrough (no change). Multiple descriptors = auto-composition. Zero config needed.
+**Alternatives:**
+- Explicit registration — consumer creates composition bean manually, listing descriptors and ordering. More control but requires boilerplate in every multi-domain app.
+**Rationale:** Preserves "good defaults" from D1. Just adding a second domain JAR to the classpath activates cross-domain composition. Single-descriptor path is a no-op passthrough — no behavioral change for existing single-domain deployments.
+**Trade-offs:** Less control over composition order. Mitigated by provides/requires declarations (D8) which make ordering declarative and automatic.
+**Depends on:** D1 (good defaults), D2 (DomainDescriptor)
+**Sources:** CdiNodeProvisionerRouter, CdiActualStateAdapterRouter, CdiMergedEventSource (existing CDI compositor pattern)
+**Exploration:** quick
+**Status:** captured
+
+## D8: Cross-domain dependency declaration — provides/requires
+
+**Choice:** Each DomainDescriptor declares provides: Set<NodeType> (types this domain creates) and requires: Set<NodeType> (types needed before starting). Composition layer matches requires→provides automatically. Domains reference NodeTypes, not other domains.
+**Alternatives:**
+- In dependent domain's descriptor only — descriptor references another domain's node types by name. Soft compile-time awareness, but workable.
+- Separate orchestration config — cross-domain manifest (YAML/annotation). Clean separation but another artifact to maintain.
+**Rationale:** Fully decoupled — domains don't reference each other by name, only by abstract NodeType. Wiring is automatic (requires/provides matching). Misconfiguration caught at startup (unsatisfied requires → fail fast). Naturally scopes the CompletionCondition from D3.
+**Trade-offs:** Requires that cross-domain dependencies are expressible via NodeType. Domains with untyped or single-typed nodes may need to introduce finer types to express partial dependencies.
+**Depends on:** D4 (type-level granularity)
+**Sources:** NodeType value type, NodeProvisionerRouter.handledTypes() pattern, first-principles analysis
+**Exploration:** quick
+**Status:** captured
+
+## D9: Module placement — api/ for SPI, runtime/ for engine
+
+**Choice:** DomainDescriptor SPI in api/, CrossDomainCompositionEngine in runtime/ (dedicated package: io.casehub.desiredstate.runtime.composition).
+**Alternatives:**
+- New orchestration/ module — cleaner layering signal, but: api/ already contains multi-domain primitives (routers, overlay/connect), runtime/ already contains CDI compositors (FaultPolicyEngine, SituationRecompilerEngine, routers, MergedEventSource). A new module breaks "just add JARs" experience and the composition engine is tightly coupled to runtime APIs so independent versioning is illusory.
+**Rationale:** api/ already hosts multi-domain SPIs (ActualStateAdapterRouter, NodeProvisionerRouter). runtime/ already hosts their CDI compositors. DomainDescriptor + composition engine follow the same pattern. No new module means no extra dependency for multi-domain apps — consistent with D1 (good defaults) and D7 (automatic CDI discovery).
+**Trade-offs:** runtime/ grows. Mitigated by dedicated package for composition code.
+**Sources:** api/ module (existing routers), runtime/ module (existing compositors), first-principles analysis of module boundary criteria
+**Exploration:** deep-analysis
+**Status:** captured
