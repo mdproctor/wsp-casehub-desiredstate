@@ -2,7 +2,7 @@
 
 ## State
 branch: issue-140-cross-domain-orchestration
-state: scaffolded
+state: active
 project-sha: a048a9f72b58d7189540d586d66a6408c48c3713
 date: 2026-09-12
 issue-repo: casehubio/casehub-desiredstate
@@ -13,13 +13,13 @@ flyway-next-v: none
 
 ## Queue
 - [ ] casehubio/casehub-desiredstate#140 — Issue #140 ← active
-  - [ ] Batch 1: Foundation
-    - [ ] Task 1: DomainId and DomainRegistration types
-    - [ ] Task 2: Registration and validation engine
-  - [ ] Batch 2: Flattened
-    - [ ] Task 3: Overlay composition and edge creation
-    - [ ] Task 4: Per-domain lifecycle tracking
-    - [ ] Task 5: SituationRecompiler integration
+  - [x] Batch 1: Foundation
+    - [x] Task 1: DomainId and DomainRegistration types
+    - [x] Task 2: Registration and validation engine
+  - [x] Batch 2: Flattened
+    - [x] Task 3: Overlay composition and edge creation
+    - [x] Task 4: Per-domain lifecycle tracking
+    - [x] Task 5: SituationRecompiler integration
   - [ ] Batch 3: Hierarchical
     - [ ] Task 6: Meta-loop and DomainNodeProvisioner
     - [ ] Task 7: End-to-end integration tests
