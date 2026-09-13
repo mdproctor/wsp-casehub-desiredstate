@@ -75,16 +75,17 @@
 
 ## D7: CDI discovery — automatic via startup registration
 
-**Choice:** `CrossDomainCompositionEngine` is `@ApplicationScoped`. Domains register via CDI startup observers (`@Observes StartupEvent` with `@Priority`). The engine auto-composes after all registrations. One registration = single-domain passthrough (engine passes `CompilationResult` directly to `LifecycleManager`, no merging). Multiple registrations = auto-composition via `overlay()` + cross-domain edges.
+**Choice:** `CrossDomainCompositionEngine` is `@ApplicationScoped`. Domains register via CDI startup observers (`@Observes StartupEvent` at default or explicit `@Priority`). The engine composes in its own `@Observes @Priority(PLATFORM_AFTER + 1000) StartupEvent` observer — this fires after all domain registrations because CDI observers of the same event fire in `@Priority` order (lower value = earlier). One registration = single-domain passthrough (engine passes `CompilationResult` directly to `LifecycleManager`, no merging). Multiple registrations = auto-composition via `overlay()` + cross-domain edges. Zero registrations = no-op (engine is inert when no domain JARs are present).
 **Alternatives:**
-- Explicit registration — consumer creates composition bean manually, listing domains and ordering. More control but requires boilerplate in every multi-domain app.
-- Instance<DomainDescriptor> injection — CDI auto-discovery of descriptor beans. Requires D2's DomainDescriptor SPI, which is superseded.
-**Rationale:** Preserves auto-activation from D1's original intent. Adding a second domain JAR to the classpath activates composition automatically — each JAR's startup observer registers with the engine. Single-domain passthrough means existing single-domain deployments have no behavioral change in reconciliation outcomes.
-**Trade-offs:** Entry-point API does change — domains now register with the composition engine rather than calling LifecycleManager directly. This is an API migration, not a behavioral change. Registration ordering depends on CDI `@Priority` or lifecycle phasing. Mitigated by the provides/requires declarations (D8) which make ordering declarative.
+- Explicit `compose()` call — consumer triggers composition after registering all domains. Explicit and robust but requires app code, breaking "just add JARs" auto-activation.
+- Post-startup lifecycle event — engine observes a custom event fired after `StartupEvent` processing. Clean separation but requires a custom event definition (Quarkus has no built-in "startup-complete" observer event).
+- Instance<DomainDescriptor> injection — CDI auto-discovery of descriptor beans. Superseded by D2 push model.
+**Rationale:** CDI `@Priority` ordering on `StartupEvent` observers is the standard Quarkus mechanism for sequencing startup work. The composition engine at `PLATFORM_AFTER + 1000` fires after all application-level observers (which use default or lower priority). This is a documented convention — domain startup observers must use priority below the engine's. The convention is validated at startup: if the engine has zero registrations and at least one domain JAR is on the classpath (detectable via CDI `Instance<NodeProvisioner>` being non-empty), it logs a warning about likely misconfiguration.
+**Trade-offs:** Entry-point API does change — domains now register with the composition engine rather than calling LifecycleManager directly. Registration ordering depends on CDI `@Priority` convention — a domain observer with priority above `PLATFORM_AFTER + 1000` would register after composition. Mitigated by documenting the convention and the engine's startup validation.
 **Depends on:** D2 (push model registration), D8 (provides/requires for ordering)
 **Sources:** CdiNodeProvisionerRouter, CdiActualStateAdapterRouter, CdiMergedEventSource (existing CDI compositor pattern)
 **Exploration:** quick
-**Status:** revised — was "Instance<DomainDescriptor> injection"; revised for push model. Narrowed "no behavioral change" claim per R1-08: reconciliation outcomes unchanged, but entry-point API changes.
+**Status:** revised — R2: added registration completeness mechanism via CDI `@Priority` convention on `StartupEvent` observers (R2-02)
 
 ## D8: Cross-domain dependency declaration — provides/requires with validation
 
@@ -120,18 +121,20 @@
 
 1. **Initial composition:** Engine merges all registered domain graphs (overlay + cross-domain edges) and calls `LifecycleManager.start(tenancyId, composedResult)`.
 2. **SituationRecompiler flow:** `SituationRecompiler` returns `CompilationResult` scoped to one domain. The composition engine intercepts: replaces that domain's contribution, re-merges with other domains' current graphs + cross-domain edges, calls `LifecycleManager.updateDesired(tenancyId, newComposedResult)`.
-3. **Cascade detection:** If a domain's recompilation removes a NodeType from its provides set, the engine detects that downstream domains' requires are now unsatisfied. Initial behavior: fail fast with descriptive error. Cascade recompilation is a future evolution.
-4. **Per-domain lifecycle tracking:** See D13.
+3. **Domain matching:** Domains register their `SituationRecompiler`s alongside their graphs via `registerDomain()`. The composition engine maps each recompiler to its domain at registration time — no SPI change to `SituationRecompiler` in api/. Cross-domain recompilers (spanning multiple domains' types) are registered directly with the composition engine, not via a domain.
+4. **Cascade detection:** If a domain's recompilation removes a NodeType from its provides set, the engine detects that downstream domains' requires are now unsatisfied. Initial behavior: fail fast with descriptive error. Cascade recompilation is a future evolution.
+5. **Per-domain lifecycle tracking:** See D13.
 
 **Alternatives:**
 - Replace LifecycleManager — composition engine subsumes phase transition logic. Simpler call stack but conflates domain ordering and phase transitions, requires reimplementing phase CAS logic that already works.
 - LifecycleManager directly receives SituationRecompiler results — stale composition engine view; engine and LifecycleManager fight over desired state.
-**Rationale:** LifecycleManager's CAS-based phase transitions work well and shouldn't change. The composition engine adds domain orchestration above it. SituationRecompiler results must flow through the composition engine so it can re-compose — otherwise the composition engine's view of the merged graph diverges from LifecycleManager's.
-**Trade-offs:** The composition engine must track per-domain CompilationResult to support re-composition. SituationRecompilers need domain scoping (which domain does a recompiled result belong to). This is a new requirement on the SituationRecompiler SPI — it may need a `domainId()` method or the composition engine needs to match recompilers to domains via registration.
+- Add `domainId()` to SituationRecompiler SPI — makes the api/ SPI aware of cross-domain composition, which is a runtime concern. Violates module-tier-structure protocol: api/ SPIs should be generic.
+**Rationale:** LifecycleManager's CAS-based phase transitions work well and shouldn't change. The composition engine adds domain orchestration above it. SituationRecompiler results must flow through the composition engine so it can re-compose. Domain matching happens at registration time (push model), keeping the `SituationRecompiler` SPI in api/ composition-agnostic — it has no `domainId()`, no awareness of cross-domain orchestration. The composition engine in runtime/ knows which recompilers belong to which domain because domains push them at registration.
+**Trade-offs:** The composition engine must track per-domain CompilationResult and per-domain SituationRecompilers to support re-composition. The `registerDomain()` API grows to accept optional SituationRecompilers. Cross-domain recompilers need a separate registration path.
 **Depends on:** D1 (flat architecture), D2 (push model), D13 (per-domain lifecycle state)
-**Sources:** LifecycleManager.java (CAS phase transitions), ReconciliationLoop.java, SituationRecompilerEngine.java
+**Sources:** LifecycleManager.java (CAS phase transitions), ReconciliationLoop.java, SituationRecompilerEngine.java, SituationRecompiler.java (api/ — unchanged)
 **Exploration:** quick
-**Status:** revised — was "two layers, each with a single concern" without addressing SituationRecompiler interaction; revised to explicitly design the recompilation flow per R1-11
+**Status:** revised — R2: replaced domainId() SPI change with registration-based matching, keeping SituationRecompiler in api/ composition-agnostic (R2-03)
 
 ## D11: Tenancy model — same tenant for composed domains
 
@@ -153,10 +156,11 @@
 - CloudEvents from domain A consumed by domain B's fault policies — adds coupling between domain fault policies and requires domain B to understand domain A's fault semantics.
 - Composition engine mediates fault signals — adds a new fault propagation layer with different semantics from the existing per-graph FaultPolicyEngine.
 **Rationale:** The flat model's chief advantage: cross-domain faults are just faults in a single graph. The existing `FaultPolicyEngine` evaluates all fault policies against the merged graph. Policies from different domains naturally compose (they handle different NodeType/FaultType combinations, just as they do today). No new fault propagation mechanism needed.
-**Trade-offs:** A fault policy from domain A could mutate nodes from domain B if it has visibility into B's node types. This is a feature (cross-domain fault responses) but requires domain authors to be aware that the graph is composed. Mitigated by NodeType-scoped fault policies — existing convention is to scope policies by the node types they handle.
+**Trade-offs:** A fault policy from domain A could mutate nodes from domain B if it has visibility into B's node types. This is a feature (cross-domain fault responses) for trusted composition but an implicit trust extension for untrusted domains.
+**Trust assumption:** Composed domains are trusted — authored by the same team (casehub-ops is the first consumer, single team). Adding a domain JAR to the classpath extends trust to that domain's fault policies over the entire merged graph. For untrusted domain composition (e.g., third-party domain JARs), fault policy scoping via NodeType-based filtering in `FaultPolicyEngine` would be needed — this is a future evolution, not a current requirement.
 **Sources:** FaultPolicyEngine.java, ReconciliationLoop.reconcile() (drift detection + fault feedback), ThresholdFaultPolicy
 **Exploration:** surfaced-by-review
-**Status:** captured
+**Status:** revised — R2: made trust assumption explicit; cross-domain fault visibility is a feature for trusted composition, requires scoping for untrusted (R2-04)
 
 ## D13: Per-domain lifecycle state — composition engine manages internally
 
@@ -170,11 +174,14 @@ When a domain's phase completes (its `CompletionCondition` is satisfied for its 
 **Alternatives:**
 - Single composed Lifecycle — combinatorial explosion: A:2phases × B:3phases = 6 composed phases. Each composed phase would need its own CompletionCondition. Unworkable beyond two domains.
 - LifecycleManager manages per-domain phases — would require LifecycleManager to understand domain composition, breaking its single-responsibility as a phase transition orchestrator.
-**Rationale:** The composition engine is already tracking per-domain contributions (D10). Extending it to track per-domain phase state is natural. `LifecycleManager` continues to manage the single composed graph's lifecycle — it doesn't need to know about domains. The composition engine evaluates per-domain `CompletionCondition`s via a `ReconciliationListener` that filters actual state to each domain's current-phase node types.
+**Rationale:** The composition engine is already tracking per-domain contributions (D10). Extending it to track per-domain phase state is natural. `LifecycleManager` continues to manage the single composed graph's lifecycle — it doesn't need to know about domains. The composition engine evaluates per-domain `CompletionCondition`s via `GlobalReconciliationListener` — the CDI-discovered, multi-instance listener that fires for all tenants after every full reconciliation cycle. This avoids competing with `LifecycleManager` for the per-tenant `ReconciliationListener` slot (which is a single `volatile` field in `TenantLoop`, always set by `LifecycleManager`).
+
+Note: `GlobalReconciliationListener` fires only from full `reconcile()`, not from type-filtered `reconcileTypes()`. This is correct — `CompletionCondition` should evaluate against full actual state, not a type-filtered subset.
+
 **Trade-offs:** The composition engine grows in responsibility: domain registration, graph merging, cross-domain edges, per-domain lifecycle tracking, and re-composition on phase transitions. This is the cost of flat composition — one component manages the composed view. Mitigated by clear internal separation (dedicated package, distinct methods for each concern).
-**Sources:** LifecycleManager.java, CompilationResult.Lifecycle, Phase.java, CompletionCondition.java, ReconciliationListener.java
+**Sources:** LifecycleManager.java, CompilationResult.Lifecycle, Phase.java, CompletionCondition.java, GlobalReconciliationListener.java, ReconciliationLoop.java (TenantLoop.fireGlobalListeners line 573)
 **Exploration:** surfaced-by-review
-**Status:** captured
+**Status:** revised — R2: corrected listener mechanism from ReconciliationListener to GlobalReconciliationListener; per-tenant slot is owned by LifecycleManager (R2-05)
 
 ## D14: Graph versioning — single composed graph, single CAS
 
@@ -191,5 +198,21 @@ When the composition engine re-composes (due to domain recompilation, phase tran
 **Rationale:** The flat model's key simplification: one graph, one version, one CAS. The composition engine is the single writer to `LifecycleManager`/`ReconciliationLoop` — no concurrent domain-level CAS operations. `SituationRecompiler` results flow through the composition engine (D10), which serializes re-composition. The existing CAS semantics in `ReconciliationLoop` are unchanged.
 **Trade-offs:** Concurrent SituationRecompiler triggers for different domains must be serialized through the composition engine. This is acceptable: situation-triggered recompilation is infrequent, and serialization through a single composition engine avoids split-brain scenarios.
 **Sources:** ImmutableDesiredStateGraph (version counter), ReconciliationLoop.compareAndSetDesired(), LifecycleManager.java
+**Exploration:** surfaced-by-review
+**Status:** captured
+
+## D15: Node ID uniqueness — convention-based with composition engine validation
+
+**Choice:** Domains in cross-domain composition must use globally unique `NodeId` values. This is enforced by convention (domain-specific ID prefixes) and validated by the composition engine at registration time. When a domain registers, the engine checks all node IDs in the domain's graph against already-registered domains' node IDs. Collisions produce a domain-attributed error message identifying both domains and the conflicting ID — not the generic `IllegalArgumentException` from `overlay()`.
+
+Convention: domain-prefixed IDs (e.g., `infra:namespace-default`, `deploy:agent-main`). This is consistent with existing examples — dungeon uses `room-*`, `goblin-*`; pipeline uses `metadata-*`, `ingestion-*`; spatial uses `cell-*`, `scout-*`, `unit-*`. All existing domains already follow this pattern naturally because their nodes represent domain-specific concepts.
+
+**Alternatives:**
+- Automatic namespacing by the composition engine — engine prefixes domain ID to all node IDs before calling `overlay()`. More robust but changes node IDs visible to provisioners and adapters, breaking the opaque-ID contract: a provisioner expecting `namespace-default` would receive `infra:namespace-default`. Would require provisioners to strip prefixes or use a translation layer.
+- No validation — let `overlay()` throw its generic `IllegalArgumentException`. Poor developer experience: the error says "Overlay conflict for node X" without identifying which domains collided.
+- Shared nodes by convention — two domains intentionally share node IDs with identical specs (the spatial example's cell nodes). This is a valid composition pattern but requires explicit coordination between domain authors. The composition engine should NOT reject this — it should only reject collisions where specs differ.
+**Rationale:** Convention-based uniqueness is the lightest-weight approach that preserves the opaque-ID contract. Domain-prefixed IDs are natural — domains model different concepts and naturally use different naming conventions. The composition engine's validation at registration time catches collisions with a helpful error message, preventing the opaque `overlay()` exception. Intentional node sharing (identical specs) remains supported — only conflicting specs trigger the validation error, consistent with `overlay()`'s semantics.
+**Trade-offs:** Convention is not compiler-enforced — a domain author could forget to prefix and create collisions. Mitigated by the engine's startup validation: collisions fail fast with clear attribution, so the developer knows exactly which domains and IDs conflict.
+**Sources:** ImmutableDesiredStateGraph.overlay() (line 252 — throws on conflicting specs), DungeonGoalCompiler (room-*, goblin-*), PipelineGoalCompiler (metadata-*, ingestion-*), spatial compilers (cell-*, scout-*, unit-*)
 **Exploration:** surfaced-by-review
 **Status:** captured
