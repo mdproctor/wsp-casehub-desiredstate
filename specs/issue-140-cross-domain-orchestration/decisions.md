@@ -1,19 +1,19 @@
-## D1: Architectural model — flat composition with single merged graph
+## D1: Architectural model — hierarchical from day one
 
-**Choice:** Single-process flat composition. Multiple domain graphs merged via `overlay()` into one `DesiredStateGraph` with cross-domain edges derived from provides/requires declarations. Single `ReconciliationLoop` per tenant reconciles the merged graph. No hierarchical meta-loop.
+**Choice:** Hierarchical architecture with good defaults so single-process deployments remain simple. Meta-loop with domain-level nodes, inner loops per domain. The hierarchical model subsumes single-process and multi-process as deployment configurations. Single-process simplicity is achieved via transparent flattening (D6), not by avoiding the architecture.
 **Alternatives:**
-- Hierarchical from day one — meta-loop with domain-level nodes, inner loops per domain. Subsumes single-process and multi-process but adds permanent dual-path maintenance. No concrete consumer for multi-process deployment exists.
-- CompositionStrategy SPI — flat by default, hierarchy as an alternative strategy via CDI displacement. Clean extension point but premature: an SPI with one implementation is an abstraction without a consumer.
-**Rationale:** Flat composition meets the known need (casehub-ops single-process infra→deployment→compliance→iot ordering). `overlay()` and `connect()` already exist. Cross-domain ordering is structural — type-based edges in the merged graph enforce sequencing via the existing `TransitionPlanner`. One code path to maintain and test. If multi-process hierarchy is needed in the future, it can be introduced as a separate composition engine or extension — the flat model's overlay-based merging doesn't preclude this.
-**Trade-offs:** Cannot support multi-process domain separation without architectural extension. Acceptable: no consumer exists for this capability, and designing for it now would double the test surface (R1-07 critique of two code paths).
-**Depends on:** D4 (type-level deps manifest as edges in merged graph), D8 (provides/requires declarations drive edge creation)
-**Sources:** casehub-desiredstate#140, casehub-ops#23, DesiredStateGraph.overlay(), TransitionPlanner, ReconciliationLoop.java, ForceDistributionTest.java (existing overlay usage)
+- Flat composition only — single merged graph, no meta-loop. Meets the known single-process need but cannot support multi-process domain separation without architectural extension. The review (R1-02) argued YAGNI; the user overrode this — the project builds for the future, not just current consumers.
+- CompositionStrategy SPI — flat by default, hierarchy as an alternative strategy via CDI displacement. Clean extension point but premature: an SPI with one implementation is an abstraction without a consumer. Can be introduced later if multiple composition strategies emerge.
+**Rationale:** The hierarchical model is the correct long-term architecture. It subsumes single-process (via flattening) and multi-process (via inner loops) as deployment configurations of one design. Building it from day one avoids the cost of bolting on hierarchy later — which would require rearchitecting the composition engine, adding domain-level node synthesis, and introducing inner loop lifecycle management retroactively.
+**Trade-offs:** More framework complexity upfront. Two code paths (flattened and hierarchical) require separate testing. Mitigated by D6 (transparent flattening) which ensures the common single-process case is simple and well-tested.
+**Depends on:** D6 (transparent flattening makes hierarchical scale down)
+**Sources:** casehub-desiredstate#140, casehub-ops#23, ReconciliationLoop.java, LifecycleManager.java, DesiredStateGraph.overlay()
 **Exploration:** quick
-**Status:** revised — was "hierarchical from day one"; revised to flat-only after R1-02 (YAGNI — no multi-process consumer) and R1-07 (dual code path maintenance cost)
+**Status:** restored — user override of review YAGNI cut. "We don't do this based on our consumers now, we build for the future."
 
 ## D2: Domain registration — push model
 
-**Choice:** Each domain compiles its own goals (type-safe, domain's concern) and registers the compiled `CompilationResult` plus metadata (`provides: Set<NodeType>`, `requires: Set<NodeType>`) with the `CrossDomainCompositionEngine` at startup. Registration via CDI startup observers — each domain JAR includes a `@ApplicationScoped` bean that `@Observes StartupEvent` and calls `engine.registerDomain()`. No DomainDescriptor SPI.
+**Choice:** Each domain compiles its own goals (type-safe, domain's concern) and registers the compiled `CompilationResult` plus metadata (`provides: Set<NodeType>`, `requires: Set<NodeType>`, optional `CompletionCondition`) with the `CrossDomainCompositionEngine` at startup. Registration via CDI startup observers — each domain JAR includes a `@ApplicationScoped` bean that `@Observes StartupEvent` and calls `engine.registerDomain()`. No DomainDescriptor SPI.
 **Alternatives:**
 - DomainDescriptor pull model — composition engine discovers descriptors via CDI, calls `descriptor.compile()`. Introduces the `GoalCompiler<G>` type erasure problem: the composition layer must call `compile()` without knowing `G`. DomainDescriptor bundles four concerns (compiler, goal loader, metadata, completion condition) in one SPI — coupling that isn't necessary when domains drive their own compilation.
 - Raw `GoalCompiler<Object>` erasure with separate `GoalProvider` SPI — splits registration across two SPIs, requires matching key, uses unchecked casts. Worst alternative.
@@ -21,23 +21,25 @@
 **Trade-offs:** The composition engine cannot trigger initial compilation — domains must compile at startup and register. For recompilation, see D10 (SituationRecompiler interaction). Registration ordering relies on CDI `@Priority` or lifecycle phasing.
 **Sources:** GoalCompiler.java, AttackGoalCompiler.java, DefenseGoalCompiler.java, DistributionGoalCompiler.java, ForceDistributionTest.java (overlay pattern), CdiNodeProvisionerRouter (CDI collection pattern)
 **Exploration:** quick
-**Status:** revised — was "DomainDescriptor pattern"; revised to push model after R1-03 (type erasure only exists if composition layer calls compile; push eliminates DomainDescriptor entirely)
+**Status:** kept — review revision (R1-03) confirmed by user. Push eliminates type erasure entirely.
 
-## D3: Steady-state definition — CompletionCondition for lifecycle phases only
+## D3: Steady-state definition — pluggable CompletionCondition
 
-**Choice:** `CompletionCondition` retains its existing role — lifecycle phase transitions evaluated by `LifecycleManager`. Cross-domain ordering in the flat model is handled by type-based edges in the merged graph, not by CompletionCondition. No cross-domain "readiness" concept needed.
+**Choice:** Reuse the existing `CompletionCondition` SPI. Each domain provides a condition at registration (D2). Default: all nodes PRESENT, zero active faults. In hierarchical mode, the CompletionCondition determines when a domain-level node transitions to "ready" — the meta-loop advances to downstream domains. In flattened mode (D6), cross-domain ordering is handled structurally by type-based graph edges — CompletionCondition is not evaluated for cross-domain readiness (provides/requires edges enforce ordering via TransitionPlanner).
 **Alternatives:**
-- Separate ReadinessCondition SPI for cross-domain readiness, naturally scoped by provides/requires types. Unnecessary in the flat model: graph edges handle ordering structurally. Would be needed if hierarchical model were adopted (deferred — see D1).
-- CompletionCondition overloaded for both lifecycle phases and cross-domain readiness — conflates two concepts with different semantics (a domain can be "ready" for downstream while not yet "complete")
-**Rationale:** In the flat model, dependency ordering is structural. If domain B's root nodes depend on domain A's NAMESPACE-type nodes via cross-domain edges, B's nodes are not plannable by `TransitionPlanner` until A's NAMESPACE nodes are PRESENT. No separate readiness check is needed — the graph's dependency edges enforce it. `CompletionCondition` stays scoped to its current role: "has this lifecycle phase reached its terminal state?"
-**Trade-offs:** If hierarchical orchestration is added later, a ReadinessCondition concept will be needed to represent "domain-level readiness" distinct from phase completion. This is a future cost accepted by the flat-only architecture (D1).
+- All nodes PRESENT, zero faults (hardcoded) — strictest, but a non-critical node failure blocks downstream domains indefinitely
+- Sentinel nodes — domain nominates specific nodes as readiness markers; adds API surface to the compiler
+- Separate ReadinessCondition SPI — unnecessary new concept; CompletionCondition already has the right signature
+**Rationale:** `CompletionCondition` already exists in the codebase (`Phase` record uses it). The default is strict (safe). Domains that need softer semantics override explicitly. No new concept introduced. The dual role (lifecycle phases + cross-domain readiness in hierarchical mode) uses the same interface with the same semantics — "has this set of nodes reached a sufficient state?"
+**Trade-offs:** Domains with mixed-criticality nodes must implement a custom condition or model criticality via finer NodeTypes. In flattened mode, CompletionCondition is unused for cross-domain ordering (graph edges handle it), so the condition is only exercised in hierarchical mode.
+**Depends on:** D1 (hierarchical architecture needs CompletionCondition for domain readiness)
 **Sources:** CompletionCondition.java, Phase.java, LifecycleManager.java, TransitionPlanner.java
 **Exploration:** quick
-**Status:** revised — was "reuse CompletionCondition for cross-domain readiness"; revised to lifecycle-only scope after R1-04 (CompletionCondition overloading conflates two distinct concepts) and D1 revision (flat model handles ordering via graph edges)
+**Status:** restored — user override of review YAGNI cut. Hierarchical mode (D1) requires CompletionCondition for cross-domain readiness.
 
 ## D4: Cross-domain dependency granularity — type-level
 
-**Choice:** Type-level cross-domain dependencies. "Deployment roots depend on infra's namespace-type nodes." Expressed declaratively via provides/requires, runtime converts to graph edges in the merged graph.
+**Choice:** Type-level cross-domain dependencies. "Deployment roots depend on infra's namespace-type nodes." Expressed declaratively via provides/requires, runtime converts to graph edges (flattened mode) or type-scoped CompletionConditions (hierarchical mode).
 **Alternatives:**
 - Coarse (domain-level only) — simple but wasteful; domain B waits for ALL of domain A, even slow nodes it doesn't need (e.g. database clusters blocking deployment that only needs namespaces)
 - Fine-grained (node-level) — most precise but creates naming coupling between independent domain compilers; fragile if a domain renames node IDs
@@ -46,95 +48,95 @@
 **Trade-offs:** Less precise than node-level deps. A slow node of a depended-upon type blocks even if the dependent only needs a fast one. Mitigated by finer NodeType modelling — which reflects semantic distinctions in the domain, not orchestration speed.
 **Sources:** DesiredStateGraph.overlay(), DesiredStateGraph.connect(), TransitionPlanner ordering, NodeType value type, first-principles analysis of flattened vs hierarchical modes
 **Exploration:** deep-analysis
-**Status:** captured
+**Status:** kept — unchanged from original. Valid in both flattened and hierarchical modes.
 
-## D5: Goal loading — domain responsibility (superseded)
+## D5: Goal loading — domain responsibility
 
 **Choice:** Goal loading is the domain's responsibility. Each domain loads its own configuration, compiles using its own `GoalCompiler<G>`, and registers the compiled `CompilationResult` with the composition engine. The composition layer never sees domain-specific configuration or goal types.
 **Alternatives:**
-- Configuration-driven via DomainDescriptor — composition layer passes shared config source, each descriptor extracts domain-specific goals. Requires D2's DomainDescriptor model, which is superseded.
+- Configuration-driven via DomainDescriptor — composition layer passes shared config source, each descriptor extracts domain-specific goals. Requires the superseded DomainDescriptor model.
 - Programmatic — consumer constructs each domain's goals explicitly. This is the current working pattern.
-**Rationale:** Superseded by D2 revision (push model). With push, domains compile themselves — goal loading is inherently the domain's concern. The composition engine receives `CompilationResult`, not goals. No shared configuration contract needed. Each domain can use whatever configuration mechanism suits it (YAML, annotations, programmatic, Preferences).
+**Rationale:** Follows from D2 (push model). With push, domains compile themselves — goal loading is inherently the domain's concern. The composition engine receives `CompilationResult`, not goals. No shared configuration contract needed. Each domain can use whatever configuration mechanism suits it (YAML, annotations, programmatic, Preferences).
 **Trade-offs:** None beyond D2's trade-offs. Domain autonomy over configuration is a feature, not a trade-off.
 **Sources:** InfraGoalCompiler.java, DeploymentGoalCompiler.java, YAML surface (YamlGraphRecorder), annotation surface
 **Exploration:** quick
-**Status:** revised — was "configuration-driven via DomainDescriptor"; superseded by D2 push model revision (R1-06)
+**Status:** kept — follows from D2 push model.
 
-## D6: Composition strategy — flat-only, single code path
+## D6: Flattening strategy — transparent for single-process
 
-**Choice:** One composition strategy: merge domain graphs via `overlay()`, add type-based cross-domain edges derived from provides/requires, feed the merged graph to a single `ReconciliationLoop`. No conditional flattening, no hierarchical mode, no mode detection.
+**Choice:** In single-process deployment (default), the composition layer detects all descriptors in one JVM, merges domain graphs into one via `overlay()`, adds type-based cross-domain edges derived from provides/requires, and feeds the merged graph to a single `ReconciliationLoop`. The meta-loop doesn't run. The consumer never sees domain-level nodes. Hierarchical mode is activated via explicit config property (`desiredstate.composition.mode=flattened|hierarchical`, default `flattened`).
 **Alternatives:**
-- Transparent flattening — composition layer detects single-process and automatically flattens. Creates two code paths (flat and hierarchical) with different fault propagation, CAS behavior, and SituationRecompiler interactions. Permanent maintenance multiplier.
-- Always hierarchical — even in single-process, meta-loop runs with domain-level nodes and inner loops. Consistent but adds overhead (multiple loop instances, domain-level node synthesis) for the only deployment model that currently exists.
-**Rationale:** Superseded by D1 revision (flat-only architecture). One code path, one test surface, one mental model. The overlay()-based merging is already validated (spatial example, ImmutableDesiredStateGraphTest). Cross-domain edges extend the graph's existing dependency infrastructure — `TransitionPlanner` respects them like any other dependency.
-**Trade-offs:** Cannot support hierarchical reconciliation. Accepted: no consumer exists (D1 rationale).
-**Depends on:** D1 (flat-only architecture), D4 (type-level deps as edges)
+- Always hierarchical — even in single-process, meta-loop runs with domain-level nodes and inner loops. Consistent mental model but adds overhead (multiple loop instances, domain-level node synthesis) when a merged graph suffices.
+- Flat-only, no hierarchical — eliminates the two-code-path concern but abandons the hierarchical architecture (rejected by user — see D1).
+**Rationale:** This is how hierarchical "scales down" to single-process simplicity. The flattened path reuses existing primitives (`overlay()`, `TransitionPlanner`, single `ReconciliationLoop`). Single-process ops deployments get the same performance and debugging experience as today's single-domain case. The hierarchical machinery only activates when the consumer explicitly opts in.
+**Trade-offs:** Two code paths (flattened and hierarchical) require separate testing. Behaviour differences between modes must be documented. The review (R1-07) identified this as a maintenance cost — mitigated by the flattened path being well-tested as the default and the hierarchical path being an explicit opt-in.
+**Depends on:** D1 (hierarchical architecture), D4 (type-level deps manifest as edges in flattened mode)
 **Sources:** DesiredStateGraph.overlay(), TransitionPlanner, ReconciliationLoop
 **Exploration:** quick
-**Status:** revised — was "transparent flattening for single-process"; revised to flat-only single code path after D1 revision eliminates the need for mode switching (R1-07)
+**Status:** restored — user override of review YAGNI cut. Transparent flattening is how D1's hierarchical architecture scales down.
 
 ## D7: CDI discovery — automatic via startup registration
 
-**Choice:** `CrossDomainCompositionEngine` is `@ApplicationScoped`. Domains register via CDI startup observers (`@Observes StartupEvent` at default or explicit `@Priority`). The engine composes in its own `@Observes @Priority(PLATFORM_AFTER + 1000) StartupEvent` observer — this fires after all domain registrations because CDI observers of the same event fire in `@Priority` order (lower value = earlier). One registration = single-domain passthrough (engine passes `CompilationResult` directly to `LifecycleManager`, no merging). Multiple registrations = auto-composition via `overlay()` + cross-domain edges. Zero registrations = no-op (engine is inert when no domain JARs are present).
+**Choice:** `CrossDomainCompositionEngine` is `@ApplicationScoped`. Domains register via CDI startup observers (`@Observes StartupEvent` at default or explicit `@Priority`). The engine composes in its own `@Observes @Priority(PLATFORM_AFTER + 1000) StartupEvent` observer — this fires after all domain registrations because CDI observers of the same event fire in `@Priority` order (lower value = earlier). One registration = single-domain passthrough (engine passes `CompilationResult` directly to `LifecycleManager`, no merging). Multiple registrations = auto-composition. Zero registrations = no-op. Mode selection (`flattened` or `hierarchical`) via config property (D6).
 **Alternatives:**
 - Explicit `compose()` call — consumer triggers composition after registering all domains. Explicit and robust but requires app code, breaking "just add JARs" auto-activation.
-- Post-startup lifecycle event — engine observes a custom event fired after `StartupEvent` processing. Clean separation but requires a custom event definition (Quarkus has no built-in "startup-complete" observer event).
+- Post-startup lifecycle event — engine observes a custom event fired after `StartupEvent` processing. Clean separation but requires a custom event definition.
 - Instance<DomainDescriptor> injection — CDI auto-discovery of descriptor beans. Superseded by D2 push model.
-**Rationale:** CDI `@Priority` ordering on `StartupEvent` observers is the standard Quarkus mechanism for sequencing startup work. The composition engine at `PLATFORM_AFTER + 1000` fires after all application-level observers (which use default or lower priority). This is a documented convention — domain startup observers must use priority below the engine's. The convention is validated at startup: if the engine has zero registrations and at least one domain JAR is on the classpath (detectable via CDI `Instance<NodeProvisioner>` being non-empty), it logs a warning about likely misconfiguration.
-**Trade-offs:** Entry-point API does change — domains now register with the composition engine rather than calling LifecycleManager directly. Registration ordering depends on CDI `@Priority` convention — a domain observer with priority above `PLATFORM_AFTER + 1000` would register after composition. Mitigated by documenting the convention and the engine's startup validation.
-**Depends on:** D2 (push model registration), D8 (provides/requires for ordering)
+**Rationale:** CDI `@Priority` ordering on `StartupEvent` observers is the standard Quarkus mechanism for sequencing startup work. The composition engine at `PLATFORM_AFTER + 1000` fires after all application-level observers (which use default or lower priority). The convention is validated at startup: if the engine has zero registrations and at least one domain JAR is on the classpath (detectable via CDI `Instance<NodeProvisioner>` being non-empty), it logs a warning about likely misconfiguration.
+**Trade-offs:** Registration ordering depends on CDI `@Priority` convention — a domain observer with priority above `PLATFORM_AFTER + 1000` would register after composition. Mitigated by documenting the convention and the engine's startup validation.
+**Depends on:** D2 (push model registration), D6 (mode selection via config), D8 (provides/requires for ordering)
 **Sources:** CdiNodeProvisionerRouter, CdiActualStateAdapterRouter, CdiMergedEventSource (existing CDI compositor pattern)
 **Exploration:** quick
-**Status:** revised — R2: added registration completeness mechanism via CDI `@Priority` convention on `StartupEvent` observers (R2-02)
+**Status:** kept — review's CDI @Priority convention is sound.
 
 ## D8: Cross-domain dependency declaration — provides/requires with validation
 
 **Choice:** Each domain declares `provides: Set<NodeType>` (types this domain creates) and `requires: Set<NodeType>` (types needed before starting) at registration. Composition engine matches requires→provides automatically. Domains reference NodeTypes, not other domains. Explicit validation at startup:
 1. **Duplicate provides** — two domains claiming the same NodeType → fail fast. Consistent with `NodeProvisionerRouter` which already fails fast on overlapping `handledTypes()`.
 2. **Circular requires** — topological sort of domain ordering at startup; cycle detected → fail fast with descriptive error.
-3. **Partial readiness** — if domain B requires NodeType X from domain A's provides {X, Y, Z}, cross-domain edges connect B's root nodes to A's X-type nodes only. B's nodes become plannable as soon as A's X nodes are PRESENT, regardless of A's Y and Z nodes.
+3. **Partial readiness** — if domain B requires NodeType X from domain A's provides {X, Y, Z}, cross-domain edges (flattened) or CompletionCondition scoping (hierarchical) connect B to A's X-type nodes only. B starts as soon as A's X nodes are available, regardless of Y and Z.
 **Alternatives:**
 - In dependent domain's descriptor only — descriptor references another domain's node types by name. Soft compile-time awareness, but workable.
 - Separate orchestration config — cross-domain manifest (YAML/annotation). Clean separation but another artifact to maintain.
-**Rationale:** Fully decoupled — domains don't reference each other by name, only by abstract NodeType. Wiring is automatic (requires/provides matching). Misconfiguration caught at startup. Type-scoped edge creation (point 3) provides fine-grained ordering: downstream domains start consuming each provided type as soon as it's available, not after the entire upstream domain completes. This interacts naturally with D4's type-level granularity.
+**Rationale:** Fully decoupled — domains don't reference each other by name, only by abstract NodeType. Wiring is automatic (requires/provides matching). Misconfiguration caught at startup. Naturally scopes CompletionCondition (D3) in hierarchical mode and generates edges in flattened mode (D6).
 **Trade-offs:** Requires that cross-domain dependencies are expressible via NodeType. Domains with untyped or single-typed nodes may need to introduce finer types to express partial dependencies.
 **Depends on:** D4 (type-level granularity)
 **Sources:** NodeType value type, NodeProvisionerRouter.handledTypes() pattern, first-principles analysis
 **Exploration:** quick
-**Status:** revised — was missing validation details; added duplicate-provides fail-fast, cycle detection, and partial readiness semantics per R1-09
+**Status:** kept — review's validation additions (duplicate-provides, cycle detection, partial readiness) are valuable.
 
 ## D9: Module placement — composition engine in runtime/
 
-**Choice:** `CrossDomainCompositionEngine` in runtime/ (dedicated package: `io.casehub.desiredstate.runtime.composition`). No new SPI in api/ — with the push model (D2), there is no DomainDescriptor interface to place. The composition engine exposes a runtime registration API (`registerDomain()`), not an SPI.
+**Choice:** `CrossDomainCompositionEngine` in runtime/ (dedicated package: `io.casehub.desiredstate.runtime.composition`). With the push model (D2), there is no DomainDescriptor SPI in api/. The composition engine exposes a runtime registration API (`registerDomain()`). `CompletionCondition` is already in api/ (D3) — no new api/ types needed.
 **Alternatives:**
-- DomainDescriptor SPI in api/, engine in runtime/ — original design. Superseded by D2 push model revision: no SPI needed.
 - New orchestration/ module — unnecessary. The composition engine is tightly coupled to runtime APIs (`ReconciliationLoop`, `LifecycleManager`, `TransitionPlanner`). A separate module would not enable independent versioning.
-**Rationale:** runtime/ already hosts CDI compositors (`FaultPolicyEngine`, `SituationRecompilerEngine`, routers, `MergedEventSource`). The composition engine follows the same pattern. Dedicated package keeps composition code isolated within runtime/. No new module means no extra dependency for multi-domain apps — consistent with D7 (automatic CDI discovery).
+- DomainDescriptor SPI in api/ — superseded by D2 push model.
+**Rationale:** runtime/ already hosts CDI compositors (`FaultPolicyEngine`, `SituationRecompilerEngine`, routers, `MergedEventSource`). The composition engine follows the same pattern. Dedicated package keeps composition code isolated within runtime/. No new module means no extra dependency for multi-domain apps.
 **Trade-offs:** runtime/ grows. Mitigated by dedicated package for composition code.
-**Sources:** api/ module (existing routers), runtime/ module (existing compositors), module-tier-structure protocol
+**Sources:** api/ module (existing routers), runtime/ module (existing compositors)
 **Exploration:** deep-analysis
-**Status:** revised — updated for D2 push model: no DomainDescriptor SPI in api/; composition engine's registerDomain() is a runtime API
+**Status:** kept — valid regardless of flat vs hierarchical.
 
 ## D10: LifecycleManager interaction — composition engine wraps with SituationRecompiler integration
 
-**Choice:** Composition engine is the top-level entry point. It wraps `LifecycleManager` — same layering (composition above lifecycle above reconciliation), but with explicit SituationRecompiler integration:
+**Choice:** Composition engine is the top-level entry point. It wraps `LifecycleManager` — composition above lifecycle above reconciliation. Explicit SituationRecompiler integration:
 
-1. **Initial composition:** Engine merges all registered domain graphs (overlay + cross-domain edges) and calls `LifecycleManager.start(tenancyId, composedResult)`.
+1. **Initial composition:** Engine merges all registered domain graphs (overlay + cross-domain edges in flattened mode; meta-loop domain-level nodes in hierarchical mode) and calls `LifecycleManager.start(tenancyId, composedResult)`.
 2. **SituationRecompiler flow:** `SituationRecompiler` returns `CompilationResult` scoped to one domain. The composition engine intercepts: replaces that domain's contribution, re-merges with other domains' current graphs + cross-domain edges, calls `LifecycleManager.updateDesired(tenancyId, newComposedResult)`.
-3. **Domain matching:** Domains register their `SituationRecompiler`s alongside their graphs via `registerDomain()`. The composition engine maps each recompiler to its domain at registration time — no SPI change to `SituationRecompiler` in api/. Cross-domain recompilers (spanning multiple domains' types) are registered directly with the composition engine, not via a domain.
+3. **Domain matching:** Domains register their `SituationRecompiler`s alongside their graphs via `registerDomain()`. The composition engine maps each recompiler to its domain at registration time — no SPI change to `SituationRecompiler` in api/.
 4. **Cascade detection:** If a domain's recompilation removes a NodeType from its provides set, the engine detects that downstream domains' requires are now unsatisfied. Initial behavior: fail fast with descriptive error. Cascade recompilation is a future evolution.
 5. **Per-domain lifecycle tracking:** See D13.
 
 **Alternatives:**
 - Replace LifecycleManager — composition engine subsumes phase transition logic. Simpler call stack but conflates domain ordering and phase transitions, requires reimplementing phase CAS logic that already works.
 - LifecycleManager directly receives SituationRecompiler results — stale composition engine view; engine and LifecycleManager fight over desired state.
-- Add `domainId()` to SituationRecompiler SPI — makes the api/ SPI aware of cross-domain composition, which is a runtime concern. Violates module-tier-structure protocol: api/ SPIs should be generic.
-**Rationale:** LifecycleManager's CAS-based phase transitions work well and shouldn't change. The composition engine adds domain orchestration above it. SituationRecompiler results must flow through the composition engine so it can re-compose. Domain matching happens at registration time (push model), keeping the `SituationRecompiler` SPI in api/ composition-agnostic — it has no `domainId()`, no awareness of cross-domain orchestration. The composition engine in runtime/ knows which recompilers belong to which domain because domains push them at registration.
-**Trade-offs:** The composition engine must track per-domain CompilationResult and per-domain SituationRecompilers to support re-composition. The `registerDomain()` API grows to accept optional SituationRecompilers. Cross-domain recompilers need a separate registration path.
-**Depends on:** D1 (flat architecture), D2 (push model), D13 (per-domain lifecycle state)
-**Sources:** LifecycleManager.java (CAS phase transitions), ReconciliationLoop.java, SituationRecompilerEngine.java, SituationRecompiler.java (api/ — unchanged)
+- Add `domainId()` to SituationRecompiler SPI — makes the api/ SPI aware of cross-domain composition, which is a runtime concern.
+**Rationale:** LifecycleManager's CAS-based phase transitions work well and shouldn't change. The composition engine adds domain orchestration above it. SituationRecompiler results must flow through the composition engine so it can re-compose. Domain matching happens at registration time (push model), keeping the `SituationRecompiler` SPI in api/ composition-agnostic.
+**Trade-offs:** The composition engine must track per-domain CompilationResult and per-domain SituationRecompilers. The `registerDomain()` API includes optional SituationRecompilers.
+**Depends on:** D1 (hierarchical architecture), D2 (push model), D13 (per-domain lifecycle state)
+**Sources:** LifecycleManager.java, ReconciliationLoop.java, SituationRecompilerEngine.java, SituationRecompiler.java
 **Exploration:** quick
-**Status:** revised — R2: replaced domainId() SPI change with registration-based matching, keeping SituationRecompiler in api/ composition-agnostic (R2-03)
+**Status:** kept — review's registration-based SituationRecompiler matching is sound.
 
 ## D11: Tenancy model — same tenant for composed domains
 
@@ -146,73 +148,78 @@
 **Trade-offs:** Cannot model cross-tenant dependencies within the composition engine. Acceptable: cross-tenant coordination is an orchestration concern above the desired-state runtime.
 **Sources:** ReconciliationLoop.java (per-tenant TenantLoop), ProvisionContext (carries tenancyId)
 **Exploration:** surfaced-by-review
-**Status:** captured
+**Status:** kept — valid regardless of flat vs hierarchical.
 
-## D12: Fault propagation — via existing merged graph infrastructure
+## D12: Fault propagation — mode-dependent
 
-**Choice:** In the flat model, faults propagate through the existing infrastructure on the merged graph. A node in domain A fails → `FaultPolicyEngine` evaluates → mutations applied to the merged graph. Domain B's nodes are in the same graph — cross-domain edges carry dependency semantics, and `TransitionPlanner`/`FaultPolicyEngine`/`ReconciliationLoop` operate on the unified graph without needing cross-domain mediation.
+**Choice:** In flattened mode, faults propagate through the existing infrastructure on the merged graph. A node in domain A fails → `FaultPolicyEngine` evaluates → mutations applied to the merged graph. Domain B's nodes are in the same graph — cross-domain edges carry dependency semantics, and `TransitionPlanner`/`FaultPolicyEngine`/`ReconciliationLoop` operate on the unified graph without needing cross-domain mediation.
+
+In hierarchical mode, each domain has its own inner loop and fault handling. Cross-domain fault propagation would require the meta-loop to observe inner loop faults and trigger downstream domain responses. Initial implementation: inner loop faults are domain-local. Cross-domain fault escalation is a future evolution.
+
 **Alternatives:**
-- Faults propagate through composed graph edges only (flat mode) — this IS the chosen approach.
-- CloudEvents from domain A consumed by domain B's fault policies — adds coupling between domain fault policies and requires domain B to understand domain A's fault semantics.
-- Composition engine mediates fault signals — adds a new fault propagation layer with different semantics from the existing per-graph FaultPolicyEngine.
-**Rationale:** The flat model's chief advantage: cross-domain faults are just faults in a single graph. The existing `FaultPolicyEngine` evaluates all fault policies against the merged graph. Policies from different domains naturally compose (they handle different NodeType/FaultType combinations, just as they do today). No new fault propagation mechanism needed.
-**Trade-offs:** A fault policy from domain A could mutate nodes from domain B if it has visibility into B's node types. This is a feature (cross-domain fault responses) for trusted composition but an implicit trust extension for untrusted domains.
-**Trust assumption:** Composed domains are trusted — authored by the same team (casehub-ops is the first consumer, single team). Adding a domain JAR to the classpath extends trust to that domain's fault policies over the entire merged graph. For untrusted domain composition (e.g., third-party domain JARs), fault policy scoping via NodeType-based filtering in `FaultPolicyEngine` would be needed — this is a future evolution, not a current requirement.
-**Sources:** FaultPolicyEngine.java, ReconciliationLoop.reconcile() (drift detection + fault feedback), ThresholdFaultPolicy
+- CloudEvents from domain A consumed by domain B's fault policies — adds coupling between domain fault policies.
+- Composition engine mediates fault signals — adds a new fault propagation layer.
+**Rationale:** The flat model's chief advantage: cross-domain faults are just faults in a single graph. The existing `FaultPolicyEngine` evaluates all fault policies against the merged graph. Policies from different domains naturally compose (they handle different NodeType/FaultType combinations).
+**Trade-offs:** In flattened mode, a fault policy from domain A could mutate nodes from domain B if it has visibility into B's node types. This is a feature for trusted composition but an implicit trust extension.
+**Trust assumption:** Composed domains are trusted — authored by the same team (casehub-ops is the first consumer, single team). For untrusted domain composition, fault policy scoping via NodeType-based filtering in `FaultPolicyEngine` would be needed — future evolution.
+**Sources:** FaultPolicyEngine.java, ReconciliationLoop.reconcile(), ThresholdFaultPolicy
 **Exploration:** surfaced-by-review
-**Status:** revised — R2: made trust assumption explicit; cross-domain fault visibility is a feature for trusted composition, requires scoping for untrusted (R2-04)
+**Status:** kept — trust assumption made explicit; hierarchical mode noted as domain-local faults initially.
 
 ## D13: Per-domain lifecycle state — composition engine manages internally
 
-**Choice:** The composition engine manages per-domain lifecycle state. Each domain registers a `CompilationResult` — either `SingleGraph` or `Lifecycle(List<Phase>)`. The engine tracks which phase each domain is at. The composed graph at any moment is the overlay of each domain's current-phase graph plus cross-domain edges.
+**Choice:** The composition engine manages per-domain lifecycle state. Each domain registers a `CompilationResult` — either `SingleGraph` or `Lifecycle(List<Phase>)`. The engine tracks which phase each domain is at.
 
-When a domain's phase completes (its `CompletionCondition` is satisfied for its nodes in the actual state), the engine:
-1. Advances that domain to its next phase
-2. Re-composes: overlay all domains' current-phase graphs + cross-domain edges
-3. Calls `LifecycleManager.updateDesired()` with the new composed graph
+In flattened mode: the composed graph at any moment is the overlay of each domain's current-phase graph plus cross-domain edges. When a domain's phase completes (its `CompletionCondition` is satisfied for its nodes in the actual state), the engine advances that domain, re-composes, and calls `LifecycleManager.updateDesired()`. Phase completion is detected via `GlobalReconciliationListener` — the CDI-discovered, multi-instance listener that fires for all tenants after every full reconciliation cycle. This avoids competing with `LifecycleManager` for the per-tenant `ReconciliationListener` slot.
+
+In hierarchical mode: per-domain lifecycle maps to the domain-level node's inner loop. Phase transitions are managed by `LifecycleManager` within the inner loop, as it works today for single-domain deployments.
 
 **Alternatives:**
-- Single composed Lifecycle — combinatorial explosion: A:2phases × B:3phases = 6 composed phases. Each composed phase would need its own CompletionCondition. Unworkable beyond two domains.
-- LifecycleManager manages per-domain phases — would require LifecycleManager to understand domain composition, breaking its single-responsibility as a phase transition orchestrator.
-**Rationale:** The composition engine is already tracking per-domain contributions (D10). Extending it to track per-domain phase state is natural. `LifecycleManager` continues to manage the single composed graph's lifecycle — it doesn't need to know about domains. The composition engine evaluates per-domain `CompletionCondition`s via `GlobalReconciliationListener` — the CDI-discovered, multi-instance listener that fires for all tenants after every full reconciliation cycle. This avoids competing with `LifecycleManager` for the per-tenant `ReconciliationListener` slot (which is a single `volatile` field in `TenantLoop`, always set by `LifecycleManager`).
+- Single composed Lifecycle — combinatorial explosion: A:2phases × B:3phases = 6 composed phases. Unworkable beyond two domains.
+- LifecycleManager manages per-domain phases — would require LifecycleManager to understand domain composition, breaking its single-responsibility.
+**Rationale:** The composition engine is already tracking per-domain contributions (D10). Extending it to track per-domain phase state is natural. `LifecycleManager` continues to manage the single composed graph's lifecycle — it doesn't need to know about domains.
 
 Note: `GlobalReconciliationListener` fires only from full `reconcile()`, not from type-filtered `reconcileTypes()`. This is correct — `CompletionCondition` should evaluate against full actual state, not a type-filtered subset.
 
-**Trade-offs:** The composition engine grows in responsibility: domain registration, graph merging, cross-domain edges, per-domain lifecycle tracking, and re-composition on phase transitions. This is the cost of flat composition — one component manages the composed view. Mitigated by clear internal separation (dedicated package, distinct methods for each concern).
+**Trade-offs:** The composition engine grows in responsibility: domain registration, graph merging, cross-domain edges, per-domain lifecycle tracking, and re-composition on phase transitions. Mitigated by clear internal separation (dedicated package, distinct methods for each concern).
 **Sources:** LifecycleManager.java, CompilationResult.Lifecycle, Phase.java, CompletionCondition.java, GlobalReconciliationListener.java, ReconciliationLoop.java (TenantLoop.fireGlobalListeners line 573)
 **Exploration:** surfaced-by-review
-**Status:** revised — R2: corrected listener mechanism from ReconciliationListener to GlobalReconciliationListener; per-tenant slot is owned by LifecycleManager (R2-05)
+**Status:** kept — GlobalReconciliationListener mechanism is sound. Hierarchical mode interaction noted.
 
 ## D14: Graph versioning — single composed graph, single CAS
 
-**Choice:** In the flat model, the composed graph is a single `DesiredStateGraph` with its own version counter. All CAS operations (`compareAndSetDesired()`) operate on this single graph. Per-domain "subgraphs" don't have independent versions — they are merged into one graph at composition time.
+**Choice:** In flattened mode, the composed graph is a single `DesiredStateGraph` with its own version counter. All CAS operations operate on this single graph. Per-domain "subgraphs" don't have independent versions — they are merged into one graph at composition time.
 
-When the composition engine re-composes (due to domain recompilation, phase transition, or SituationRecompiler), it:
-1. Builds a new composed graph (overlay + edges)
+In hierarchical mode, the meta-loop has its own graph (domain-level nodes) with its own CAS. Each inner loop has its own graph with its own CAS. No cross-loop CAS coordination needed — the meta-loop and inner loops are independent reconciliation loops.
+
+When the composition engine re-composes (due to domain recompilation, phase transition, or SituationRecompiler):
+1. Builds a new composed/meta-loop graph
 2. Calls `LifecycleManager.updateDesired()` or `compareAndSetDesired()` with the new graph
 3. The new graph gets a new version from `ImmutableDesiredStateGraph` construction
 
 **Alternatives:**
-- Dual versioning — composed graph version + per-domain subgraph versions. Requires reconciling two version spaces when CAS conflicts arise. Complex and error-prone.
-- Per-domain CAS — each domain's subgraph has its own CAS reference. The composition engine must coordinate multiple CAS operations atomically. Requires distributed locking or a transaction protocol.
-**Rationale:** The flat model's key simplification: one graph, one version, one CAS. The composition engine is the single writer to `LifecycleManager`/`ReconciliationLoop` — no concurrent domain-level CAS operations. `SituationRecompiler` results flow through the composition engine (D10), which serializes re-composition. The existing CAS semantics in `ReconciliationLoop` are unchanged.
-**Trade-offs:** Concurrent SituationRecompiler triggers for different domains must be serialized through the composition engine. This is acceptable: situation-triggered recompilation is infrequent, and serialization through a single composition engine avoids split-brain scenarios.
+- Dual versioning — composed graph version + per-domain subgraph versions. Complex and error-prone.
+- Per-domain CAS — requires distributed locking.
+**Rationale:** One graph per loop, one CAS per loop. The composition engine is the single writer to each loop. Existing CAS semantics unchanged.
+**Trade-offs:** Concurrent SituationRecompiler triggers for different domains must be serialized through the composition engine. Acceptable: situation-triggered recompilation is infrequent.
 **Sources:** ImmutableDesiredStateGraph (version counter), ReconciliationLoop.compareAndSetDesired(), LifecycleManager.java
 **Exploration:** surfaced-by-review
-**Status:** captured
+**Status:** kept — extended to cover hierarchical mode (per-loop CAS independence).
 
 ## D15: Node ID uniqueness — convention-based with composition engine validation
 
-**Choice:** Domains in cross-domain composition must use globally unique `NodeId` values. This is enforced by convention (domain-specific ID prefixes) and validated by the composition engine at registration time. When a domain registers, the engine checks all node IDs in the domain's graph against already-registered domains' node IDs. Collisions produce a domain-attributed error message identifying both domains and the conflicting ID — not the generic `IllegalArgumentException` from `overlay()`.
+**Choice:** Domains in cross-domain composition must use globally unique `NodeId` values. Enforced by convention (domain-specific ID prefixes) and validated by the composition engine at registration time. Collisions produce a domain-attributed error message identifying both domains and the conflicting ID.
 
-Convention: domain-prefixed IDs (e.g., `infra:namespace-default`, `deploy:agent-main`). This is consistent with existing examples — dungeon uses `room-*`, `goblin-*`; pipeline uses `metadata-*`, `ingestion-*`; spatial uses `cell-*`, `scout-*`, `unit-*`. All existing domains already follow this pattern naturally because their nodes represent domain-specific concepts.
+Convention: domain-prefixed IDs (e.g., `infra:namespace-default`, `deploy:agent-main`). Consistent with existing examples — dungeon uses `room-*`, `goblin-*`; pipeline uses `metadata-*`, `ingestion-*`; spatial uses `cell-*`, `scout-*`, `unit-*`.
+
+Note: in hierarchical mode with separate inner loops, node ID uniqueness is less critical (domains have separate graphs). The validation is primarily for flattened mode where all nodes share one graph. The engine validates regardless of mode — consistent behavior.
 
 **Alternatives:**
-- Automatic namespacing by the composition engine — engine prefixes domain ID to all node IDs before calling `overlay()`. More robust but changes node IDs visible to provisioners and adapters, breaking the opaque-ID contract: a provisioner expecting `namespace-default` would receive `infra:namespace-default`. Would require provisioners to strip prefixes or use a translation layer.
-- No validation — let `overlay()` throw its generic `IllegalArgumentException`. Poor developer experience: the error says "Overlay conflict for node X" without identifying which domains collided.
-- Shared nodes by convention — two domains intentionally share node IDs with identical specs (the spatial example's cell nodes). This is a valid composition pattern but requires explicit coordination between domain authors. The composition engine should NOT reject this — it should only reject collisions where specs differ.
-**Rationale:** Convention-based uniqueness is the lightest-weight approach that preserves the opaque-ID contract. Domain-prefixed IDs are natural — domains model different concepts and naturally use different naming conventions. The composition engine's validation at registration time catches collisions with a helpful error message, preventing the opaque `overlay()` exception. Intentional node sharing (identical specs) remains supported — only conflicting specs trigger the validation error, consistent with `overlay()`'s semantics.
-**Trade-offs:** Convention is not compiler-enforced — a domain author could forget to prefix and create collisions. Mitigated by the engine's startup validation: collisions fail fast with clear attribution, so the developer knows exactly which domains and IDs conflict.
-**Sources:** ImmutableDesiredStateGraph.overlay() (line 252 — throws on conflicting specs), DungeonGoalCompiler (room-*, goblin-*), PipelineGoalCompiler (metadata-*, ingestion-*), spatial compilers (cell-*, scout-*, unit-*)
+- Automatic namespacing — engine prefixes domain ID to all node IDs. Breaks the opaque-ID contract (provisioners expect unprefixed IDs).
+- No validation — poor developer experience.
+- Shared nodes by convention — two domains intentionally share node IDs with identical specs (e.g., spatial example's cell nodes). Supported — only conflicting specs trigger validation error, consistent with `overlay()` semantics.
+**Rationale:** Convention-based uniqueness preserves the opaque-ID contract. Domain-prefixed IDs are natural. Startup validation catches collisions with helpful attribution.
+**Trade-offs:** Convention is not compiler-enforced. Mitigated by startup validation with clear error messages.
+**Sources:** ImmutableDesiredStateGraph.overlay() (line 252), DungeonGoalCompiler, PipelineGoalCompiler, spatial compilers
 **Exploration:** surfaced-by-review
-**Status:** captured
+**Status:** kept — valid in both modes.
