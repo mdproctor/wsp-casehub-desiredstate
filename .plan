@@ -2,7 +2,7 @@
 
 ## State
 branch: issue-74-topology-implementation
-state: active
+state: closing:promoted
 project-sha: none
 date: 2026-09-02
 issue-repo: casehubio/casehub-desiredstate
@@ -12,6 +12,7 @@ design-section-hashes:
 flyway-next-v: unknown
 active-issue: 231
 
+evidence-era: true
 ## Queue
 - [x] casehubio/blocks#231 — extract summarisation types to summarisation-api
 - [x] casehubio/blocks#232 — CloudEvent-Summarisation bridge module
