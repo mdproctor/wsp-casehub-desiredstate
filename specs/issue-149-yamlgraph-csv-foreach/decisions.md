@@ -12,14 +12,14 @@
 **Exploration:** quick
 **Status:** revised — superseded by D2
 
-## D2: Variable resolution — single ObjectVariableSource registration via yaml-core fix
+## D2: Variable resolution — dual registration with yaml-core fallthrough
 
-**Choice:** Fix `VariableResolver.lookupVariable()` in yaml-core (platform#419) to fall through to `objectPrefixSources` for string interpolation (toString). Then register only `ObjectVariableSource` for `"var"` — no dual registration needed.
+**Choice:** Register `"var"` in both `prefixSources` (toString wrapper for string interpolation + chaining) and `objectPrefixSources` (type preservation). Platform#419 provides fallthrough for prefixes only in `objectPrefixSources`, but `"var"` specifically needs both because `withChainedScope("var", moduleOutput)` chains onto `prefixSources`.
 **Alternatives:**
-- D1 dual registration (without yaml-core fix) — works but forces boilerplate on every consumer, error-prone
+- ObjectVariableSource only (single registration) — breaks module import chaining: `withChainedScope` finds no existing `prefixSources` entry, and `lookupVariable` throws on null within a present prefix instead of falling through
 - VariableSource only with toString coercion — loses type preservation entirely
-**Rationale:** `ObjectVariableSource` subsumes `VariableSource` — every Object can be toString'd for interpolation. The gap in `lookupVariable` is an implementation oversight, not a conceptual need. Fixing it in yaml-core (~5 lines, non-breaking) benefits all consumers.
-**Trade-offs:** Was a cross-repo prerequisite — platform#419 is now landed and available in yaml-core 0.2-SNAPSHOT
+**Rationale:** `withChainedScope` operates on `prefixSources`. When module imports are present, module params chain onto the `"var"` string source. The `objectPrefixSources` entry provides type preservation via `resolveTyped()` for sole references. Both must coexist.
+**Trade-offs:** Two registrations of the same data in different shapes — unavoidable given the chaining design. Platform#419 is still valuable for prefixes that don't participate in chaining.
 **Sources:** `io.casehub.yaml.core.resolver.VariableResolver` lines 220-268 (lookupVariable only checks prefixSources), `io.casehub.yaml.core.resolver.ObjectVariableSource`
 **Exploration:** deep-analysis
 **Status:** captured

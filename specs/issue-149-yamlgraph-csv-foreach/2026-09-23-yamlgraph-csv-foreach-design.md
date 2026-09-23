@@ -55,16 +55,24 @@ All four `createYamlGoalCompiler` overloads change `Map<String, String> inlineVa
 
 ### 2.2 Resolver Construction (D2)
 
-With platform#419 landed, `lookupVariable` falls through to `objectPrefixSources` for string interpolation (toString). A single `withObjectScope` registration is sufficient:
+Dual registration — `prefixSources` for string interpolation and `withChainedScope` compatibility, plus `objectPrefixSources` for type-preserving resolution:
 
 ```java
-VariableResolver resolver = new VariableResolver(Map.of(), Set.of("match", "fault"))
+VariableSource stringSource = k -> {
+    Object v = inlineVariables.get(k);
+    return v != null ? v.toString() : null;
+};
+VariableResolver resolver = new VariableResolver(
+    Map.of("var", stringSource), Set.of("match", "fault"))
     .withObjectScope("var", inlineVariables::get);
 ```
 
-This handles both:
-- **String interpolation:** `"s3://${var.bucket}/data"` → `lookupVariable` → objectPrefixSources → `toString()` → `"s3://prod/data"`
+**Why dual registration:** `withChainedScope("var", moduleOutput)` (line ~104, module import path) chains onto `prefixSources`. If `"var"` were only in `objectPrefixSources`, module-param chaining would fail — `lookupVariable` checks `prefixSources` first and throws on null instead of falling through when the prefix IS present but the value isn't. The `prefixSources` entry ensures chaining works; the `objectPrefixSources` entry enables type preservation.
+
+This handles:
+- **String interpolation:** `"s3://${var.bucket}/data"` → `lookupVariable` → prefixSources → `toString()` → `"s3://prod/data"`
 - **Type-preserving sole reference:** `${var.batch_size}` → `resolveTyped` → objectPrefixSources → `Integer 500`
+- **Module chaining:** `withChainedScope("var", moduleOutput)` chains onto prefixSources entry correctly
 
 The `withScope("each", ...)` calls in forEach expansion remain unchanged (VariableSource path).
 
