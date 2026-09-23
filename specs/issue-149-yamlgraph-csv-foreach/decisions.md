@@ -19,8 +19,7 @@
 - D1 dual registration (without yaml-core fix) — works but forces boilerplate on every consumer, error-prone
 - VariableSource only with toString coercion — loses type preservation entirely
 **Rationale:** `ObjectVariableSource` subsumes `VariableSource` — every Object can be toString'd for interpolation. The gap in `lookupVariable` is an implementation oversight, not a conceptual need. Fixing it in yaml-core (~5 lines, non-breaking) benefits all consumers.
-**Trade-offs:** Cross-repo prerequisite (platform#419 must land before desiredstate#149)
-**Depends on:** platform#419
+**Trade-offs:** Was a cross-repo prerequisite — platform#419 is now landed and available in yaml-core 0.2-SNAPSHOT
 **Sources:** `io.casehub.yaml.core.resolver.VariableResolver` lines 220-268 (lookupVariable only checks prefixSources), `io.casehub.yaml.core.resolver.ObjectVariableSource`
 **Exploration:** deep-analysis
 **Status:** captured
