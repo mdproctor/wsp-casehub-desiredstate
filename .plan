@@ -23,3 +23,6 @@ flyway-next-v: none
   - [ ] Batch 3: batch3
     - [ ] Task 6: ObjectVariableSource typed resolution
     - [ ] Task 7: Module outputs deriveOutputs
+
+## Deferred
+- [ ] CSV-backed forEach (S / Med) []
