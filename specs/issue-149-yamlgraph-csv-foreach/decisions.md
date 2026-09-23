@@ -12,14 +12,17 @@
 **Exploration:** quick
 **Status:** revised — superseded by D2
 
-## D2: Variable resolution — dual registration with yaml-core fallthrough
+## D2: Variable resolution — single ObjectVariableSource registration
 
-**Choice:** Register `"var"` in both `prefixSources` (toString wrapper for string interpolation + chaining) and `objectPrefixSources` (type preservation). Platform#419 provides fallthrough for prefixes only in `objectPrefixSources`, but `"var"` specifically needs both because `withChainedScope("var", moduleOutput)` chains onto `prefixSources`.
+**Choice:** Register `"var"` only via `withObjectScope` — single registration. All three platform#426 fixes are landed:
+1. `lookupVariable` falls through to objectPrefixSources on both absent prefix AND same-prefix null
+2. `withChainedScope` derives from objectPrefixSources when prefixSources has no entry
+3. `resolveMap`/`resolveList` call `resolveTyped` for sole references — typed values propagate end-to-end
 **Alternatives:**
-- ObjectVariableSource only (single registration) — breaks module import chaining: `withChainedScope` finds no existing `prefixSources` entry, and `lookupVariable` throws on null within a present prefix instead of falling through
+- D1 dual registration — no longer needed after platform#426
 - VariableSource only with toString coercion — loses type preservation entirely
-**Rationale:** `withChainedScope` operates on `prefixSources`. When module imports are present, module params chain onto the `"var"` string source. The `objectPrefixSources` entry provides type preservation via `resolveTyped()` for sole references. Both must coexist.
-**Trade-offs:** Two registrations of the same data in different shapes — unavoidable given the chaining design. Platform#419 is still valuable for prefixes that don't participate in chaining.
+**Rationale:** Platform#426 makes `objectPrefixSources` a proper first-class fallback in all resolution paths. Single registration is clean, correct, and eliminates the dual-registration boilerplate.
+**Trade-offs:** None — platform#419 + #426 resolved all gaps
 **Sources:** `io.casehub.yaml.core.resolver.VariableResolver` lines 220-268 (lookupVariable only checks prefixSources), `io.casehub.yaml.core.resolver.ObjectVariableSource`
 **Exploration:** deep-analysis
 **Status:** captured
