@@ -13,3 +13,13 @@ flyway-next-v: none
 
 ## Queue
 - [ ] casehubio/casehub-desiredstate#148 — Issue #148 ← active
+  - [ ] Batch 1: batch1
+    - [ ] Task 1: Fault template to VariableResolver
+    - [ ] Task 2: ForEachDirective.parse() adoption
+  - [ ] Batch 2: batch2
+    - [ ] Task 3: ConditionEvaluator for richer when
+    - [ ] Task 4: DeferredPrefixHandler validation
+    - [ ] Task 5: CSV-backed forEach
+  - [ ] Batch 3: batch3
+    - [ ] Task 6: ObjectVariableSource typed resolution
+    - [ ] Task 7: Module outputs deriveOutputs
