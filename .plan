@@ -25,4 +25,4 @@ flyway-next-v: none
     - [ ] Task 7: Module outputs deriveOutputs
 
 ## Deferred
-- [ ] CSV-backed forEach (S / Med) []
+- [ ] ObjectVariableSource typed resolution (M / Med) []
