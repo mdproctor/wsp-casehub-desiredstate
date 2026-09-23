@@ -59,3 +59,14 @@
 **Sources:** `ForEachExpander` (yaml-core) — two `expand()` overloads, `CsvDataSource.fromDataBlock()`
 **Exploration:** quick
 **Status:** captured
+
+## D6: VariablePrefixRewriter normalization at deployment time
+
+**Choice:** Wire `VariablePrefixRewriter` into the deployment processor to normalize bare variable references before validation and compilation. `${batch_size}` → `${var.batch_size}`, `${region}` (forEach var) → `${each.region}`.
+**Alternatives:**
+- No normalization — authors must always use fully-prefixed references. Works but verbose, especially for simple graphs.
+**Rationale:** `VariablePrefixRewriter` already exists in yaml-core. Wiring it at deployment time is a one-pass normalization before validation — zero runtime cost, better authoring ergonomics.
+**Trade-offs:** YAML semantics become slightly less explicit (bare refs work). Mitigated by the rewriter being deterministic and the normalized form being visible in error messages.
+**Sources:** `io.casehub.yaml.core.resolver.VariablePrefixRewriter` (yaml-core)
+**Exploration:** quick
+**Status:** captured

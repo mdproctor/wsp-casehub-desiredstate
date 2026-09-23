@@ -126,7 +126,18 @@ Add validation in `validateYamlGraph`:
 1. **Parse validation:** Call `CsvDataSource.fromDataBlock(graph.data())` — catches malformed CSV at build time.
 2. **Cross-reference check:** For nodes with `forEach` referencing a group name, verify the group exists in either `iterations` or the parsed `dataSources`. The existing `validateForEach` method already checks `iterations` — extend it to also accept parsed data source names.
 
-### 3.3 GraphDescriptor
+### 3.3 Variable Prefix Normalization (Bonus)
+
+Wire `VariablePrefixRewriter` from yaml-core into the deployment processor for authoring ergonomics. YAML authors can write `${batch_size}` or `${region}` and the processor normalizes to `${var.batch_size}` or `${each.region}` before validation.
+
+Apply rewriting in `discoverYamlGraphs` after parsing, before validation — rewrite string values in node specs, forEach directives, and fault policy templates. The rewriter needs:
+- `defaultPrefix`: `"var"` — bare references default to variables
+- `knownPrefixes`: `{"var", "each", "match", "fault", "module", "params"}` — already-prefixed references pass through
+- `forEachVars`: collected from forEach `as` declarations — bare references matching forEach variable names rewrite to `${each.<name>}`
+
+This is a deployment-time normalization pass, not a runtime concern — the recorder sees already-normalized YAML.
+
+### 3.4 GraphDescriptor
 
 `toGraphDescriptor` is unaffected — it reads `nodes`, `desiredState`, and dependency info. The `data` and widened `variables` fields are consumed at runtime via the recorder, not at build time via the descriptor.
 
@@ -156,7 +167,15 @@ All direct `new YamlGraph(...)` calls append `, null` for the `data` parameter:
 - **Mixed:** Typed and string variables in the same graph
 - **Deployment:** `Map<String, Object>` variables pass through recorder serialization correctly
 
-### 4.4 Existing Test Stability
+### 4.4 New Tests — Item 3 (Prefix Normalization)
+
+- **Bare variable rewrite:** `${batch_size}` in spec → normalized to `${var.batch_size}` before compilation
+- **ForEach variable rewrite:** `${region}` where `region` is a forEach `as` name → normalized to `${each.region}`
+- **Already-prefixed passthrough:** `${var.batch_size}`, `${match.sink.id}`, `${fault.nodeId}` unchanged
+- **Mixed:** Bare and prefixed references in the same spec value
+- **Integration:** End-to-end from YAML with bare references → compiled graph with correct values
+
+### 4.5 Existing Test Stability
 
 The `VariableResolverTest` in this repo currently constructs resolvers with `Map<String, String>` via the `resolver(Map<String, String>)` helper. These tests remain valid — the old construction pattern still works (VariableSource path). New tests for typed resolution use `withObjectScope`.
 
@@ -187,8 +206,10 @@ nodes:
       name: "${each.region.name}-ingest"
       tier: ${each.region.tier}          # resolves to Integer via CSV typed column
       uri: "s3://${var.bucket}/${each.region.name}/data"
-      batchSize: ${var.batch_size}       # resolves to Integer 500 via ObjectVariableSource
+      batchSize: ${batch_size}            # bare ref → normalized to ${var.batch_size} → Integer 500
 ```
+
+Authors can also write `${var.batch_size}` explicitly — already-prefixed references pass through unchanged.
 
 ## References
 
@@ -198,5 +219,7 @@ nodes:
 - `io.casehub.yaml.core.data.CsvColumnType` — typed column parsing (INTEGER, BOOLEAN, NUMBER)
 - `io.casehub.yaml.core.foreach.ForEachExpander` — CSV-aware `expand()` overload
 - `YamlGraphRecorder.java:68-241` — main goal compiler method
+- `io.casehub.yaml.core.resolver.VariablePrefixRewriter` — bare reference normalization
 - `YamlDesiredStateProcessor.java:52-162` — discovery and validation
 - casehubio/casehub-desiredstate#148 — predecessor (forEach + ConditionEvaluator)
+- casehubio/platform#419, #426 — VariableResolver objectPrefixSources integration
