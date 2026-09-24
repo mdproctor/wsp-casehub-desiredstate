@@ -13,3 +13,12 @@ flyway-next-v: none
 
 ## Queue
 - [ ] casehubio/casehub-desiredstate#149 — Issue #149 ← active
+  - [ ] Batch 1: Model
+    - [ ] Task 1: YamlGraph record widen+data
+  - [ ] Batch 2: Wiring
+    - [ ] Task 2: Recorder ObjectVariableSource+CSV
+    - [ ] Task 3: Deployment validation+variable passing
+  - [ ] Batch 3: Normalization
+    - [ ] Task 4: VariablePrefixRewriter
+  - [ ] Batch 4: Verification
+    - [ ] Task 5: Full build
