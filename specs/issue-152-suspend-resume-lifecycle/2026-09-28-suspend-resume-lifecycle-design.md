@@ -269,6 +269,10 @@ public interface HumanNodeHandler {
 
 ### 5.4 HumanGating (modified — api/)
 
+The existing HumanGating enum uses per-action values (PROVISION_ONLY, DEPROVISION_ONLY, ALL).
+With four actions, the enum would need 2^4 = 16 combinations to express all possibilities.
+Instead, keep the existing values and add SUSPEND_ONLY and RESUME_ONLY for the common cases:
+
 ```java
 public enum HumanGating {
     NONE,
@@ -276,11 +280,14 @@ public enum HumanGating {
     DEPROVISION_ONLY,
     SUSPEND_ONLY,      // new
     RESUME_ONLY,       // new
-    ALL
+    ALL                // gates all four actions
 }
 ```
 
-`requiresHuman(StepAction)` updated to handle the new values. `ALL` gates all four actions.
+`requiresHuman(StepAction)` updated to handle the new values. Arbitrary combinations (e.g.,
+gate provision+suspend but not deprovision+resume) are not expressible — same limitation as
+today. If needed later, HumanGating could evolve to an `EnumSet<StepAction>` approach, but
+that's a separate concern.
 
 ## 6. HookDescriptor Impact
 
