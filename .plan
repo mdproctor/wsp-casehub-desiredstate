@@ -1,0 +1,15 @@
+# Work Plan — issue-152-suspend-resume-lifecycle
+
+## State
+branch: issue-152-suspend-resume-lifecycle
+state: scaffolded
+project-sha: 
+date: 
+issue-repo: casehubio/casehub-desiredstate
+covers: 152
+design-repo: project
+design-section-hashes: 
+flyway-next-v: none
+
+## Queue
+- [ ] casehubio/casehub-desiredstate#152 — Issue #152 ← active
