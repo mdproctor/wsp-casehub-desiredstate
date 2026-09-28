@@ -90,6 +90,22 @@ enforcement flags every omission at compile time.
 public enum StepAction { PROVISION, DEPROVISION, SUSPEND, RESUME }
 ```
 
+### 3.4a FaultType (modified — api/)
+
+```java
+public enum FaultType {
+    PROVISION_FAILED,
+    DEPROVISION_FAILED,
+    SUSPEND_FAILED,       // new
+    RESUME_FAILED,        // new
+    NODE_DEGRADED,
+    APPROVAL_REJECTED
+}
+```
+
+Required for correct fault classification. Without these, `ReconciliationLoop.faultFeedback()`
+would misclassify suspend failures as `PROVISION_FAILED` and resume failures similarly.
+
 ### 3.5 SuspendResult / ResumeResult (new — api/)
 
 ```java
@@ -125,6 +141,12 @@ public record ResumeContext(String tenancyId, DesiredStateGraph graph) {
 
 Same pattern as ProvisionContext/DeprovisionContext. The provisioner reads state references
 (conversationId, snapshot path, etc.) from the NodeSpec — the generic runtime stays domain-agnostic.
+
+**Type proliferation note:** After this change, the API has 4 result interfaces (12 variant classes)
+and 4 context records with identical structure. A unified `ActionResult`/`ActionContext` carrying
+`StepAction` would reduce this. We keep per-action types for method signature discrimination —
+a provisioner's `suspend()` cannot accidentally return a `ProvisionResult`. If more verbs are
+added in the future, consolidation should be revisited.
 
 ### 3.7 NodeProvisioner (modified — api/)
 
@@ -192,6 +214,14 @@ public record TransitionPlan(
 - Resumptions before additions: restore existing state before creating new resources (dependencies
   may need their state restored before new dependents can provision).
 
+**Internal ordering within each list:**
+- Removals: topologically sorted, leaves-first (dependents before dependencies) — existing behavior.
+- Suspensions: topologically sorted, leaves-first (like removals — suspend dependents before their
+  dependencies to avoid failures from an active dependent accessing a suspended dependency).
+- Resumptions: topologically sorted, roots-first (like additions — resume dependencies before
+  dependents so dependents find their dependencies available on wake).
+- Additions: topologically sorted, roots-first — existing behavior.
+
 The existing 4-arg constructor is preserved for backward compatibility, defaulting suspensions
 and resumptions to empty lists.
 
@@ -213,10 +243,38 @@ session's process may be gone (ABSENT) but its conversation history persists on 
 detects whether the state is recoverable. If it isn't, the provisioner returns Failed and the
 node faults — the fault policy handles recovery.
 
+**DRIFTED + SUSPENDED → SUSPEND:** This preserves the drifted state. When the node is later
+resumed, it resumes with stale/incorrect state. This is acceptable for resources where drift
+during suspension is tolerable (e.g. a CLI session whose conversation history diverged from
+the spec). For domains where resumed state must match the spec, the domain's fault policy can
+detect drift-on-resume and trigger a provision+suspend cycle.
+
 **Stateless fallback:** When `supportsStatefulLifecycle()` returns false for a node's type, the
 planner substitutes: SUSPEND → DEPROVISION, RESUME → PROVISION. The provisioner never sees
 suspend/resume calls — it uses the stateless destroy/create path. This is the key backward
 compatibility mechanism.
+
+**Planner dependency for stateless fallback:** The current `TransitionPlanner` is a pure function
+with no provisioner dependency. The stateless fallback requires knowing which types support
+stateful lifecycle. To preserve testability, `plan()` gains a `Predicate<NodeType>` parameter:
+
+```java
+public TransitionPlan plan(
+    DesiredStateGraph desired, ActualState actual,
+    DesiredStateGraph previousDesired,
+    Predicate<NodeType> supportsStatefulLifecycle
+)
+```
+
+The predicate is injected by the caller (ReconciliationLoop), which has access to the
+`NodeProvisionerRouter`. The planner remains a pure function — no infrastructure dependency.
+Existing 2-arg and 3-arg `plan()` overloads delegate with `type -> false` (stateless-only fallback).
+
+**Resume failure recovery:** When `resume()` returns `Failed` (e.g. persisted state is gone),
+the fault is classified as `FaultType.RESUME_FAILED`. The `ThresholdFaultPolicy` can handle this
+with a tier that provisions a fresh resource: on RESUME_FAILED, add a mutation that changes the
+node's targetStatus to ACTIVE (triggering provision on the next cycle), or add a review node for
+human decision. The recovery path is policy-driven, not hardcoded in the planner.
 
 ## 5. Executor Changes
 
@@ -242,12 +300,33 @@ for (OrderedStep step : plan.resumptions()) {
 }
 ```
 
-### 5.2 CaseTransitionExecutor (modified — engine-adapter/)
+### 5.2 CaseTransitionExecutor (engine-adapter/ — fail-fast guard in this issue)
 
-The buildCaseDefinition method gains suspend/resume phases between removal and addition phases.
-Worker(Workflow) bindings for suspend/resume steps follow the same pattern as provision/deprovision
-bindings. DesiredStateDispatch gains `desiredstate:suspend` and `desiredstate:resume` dispatch
-registrations.
+Full CaseTransitionExecutor support for suspend/resume (case bindings, workflow phases) is deferred.
+However, `CaseTransitionExecutor.execute()` currently only iterates `plan.removals()` and
+`plan.additions()` — it would silently discard suspensions and resumptions, creating an infinite
+no-op replanning loop.
+
+**Minimum viable guard (in scope for this issue):** `CaseTransitionExecutor.execute()` must
+fail-fast if `plan.suspensions()` or `plan.resumptions()` are non-empty:
+
+```java
+if (!plan.suspensions().isEmpty() || !plan.resumptions().isEmpty()) {
+    throw new UnsupportedOperationException(
+        "CaseTransitionExecutor does not yet support suspend/resume. " +
+        "Use SimpleTransitionExecutor or wait for engine-adapter support.");
+}
+```
+
+**DesiredStateDispatch exhaustive switch:** `StepAction` gaining SUSPEND/RESUME breaks the
+exhaustive switch in `DesiredStateDispatch.dispatch()`. This issue adds placeholder cases:
+
+```java
+case SUSPEND -> throw new UnsupportedOperationException("suspend dispatch not yet supported");
+case RESUME -> throw new UnsupportedOperationException("resume dispatch not yet supported");
+```
+
+These compile-time fixes are required to keep the engine-adapter module buildable.
 
 ### 5.3 HumanNodeHandler (modified — api/)
 
@@ -269,25 +348,32 @@ public interface HumanNodeHandler {
 
 ### 5.4 HumanGating (modified — api/)
 
-The existing HumanGating enum uses per-action values (PROVISION_ONLY, DEPROVISION_ONLY, ALL).
-With four actions, the enum would need 2^4 = 16 combinations to express all possibilities.
-Instead, keep the existing values and add SUSPEND_ONLY and RESUME_ONLY for the common cases:
+The existing HumanGating enum with per-action values becomes lossy with four actions — `merge()`
+cannot represent arbitrary combinations without forcing `ALL`. Replace the enum with an
+`EnumSet<StepAction>`-based record:
 
 ```java
-public enum HumanGating {
-    NONE,
-    PROVISION_ONLY,
-    DEPROVISION_ONLY,
-    SUSPEND_ONLY,      // new
-    RESUME_ONLY,       // new
-    ALL                // gates all four actions
+public record HumanGating(Set<StepAction> gatedActions) {
+    public static final HumanGating NONE = new HumanGating(Set.of());
+    public static HumanGating all() { return new HumanGating(EnumSet.allOf(StepAction.class)); }
+    public static HumanGating of(StepAction... actions) {
+        return new HumanGating(EnumSet.copyOf(Set.of(actions)));
+    }
+
+    public boolean requiresHuman(StepAction action) { return gatedActions.contains(action); }
+    public boolean any() { return !gatedActions.isEmpty(); }
+    public HumanGating merge(HumanGating other) {
+        EnumSet<StepAction> merged = EnumSet.noneOf(StepAction.class);
+        merged.addAll(gatedActions);
+        merged.addAll(other.gatedActions);
+        return new HumanGating(merged);
+    }
 }
 ```
 
-`requiresHuman(StepAction)` updated to handle the new values. Arbitrary combinations (e.g.,
-gate provision+suspend but not deprovision+resume) are not expressible — same limitation as
-today. If needed later, HumanGating could evolve to an `EnumSet<StepAction>` approach, but
-that's a separate concern.
+Migration: `HumanGating.PROVISION_ONLY` → `HumanGating.of(StepAction.PROVISION)`, etc.
+Compile errors guide every callsite. The merge is now lossless for any combination of actions.
+Pre-release project — no backward-compatibility concern.
 
 ## 6. HookDescriptor Impact
 
@@ -336,13 +422,69 @@ Plugins that omit `suspend:`/`resume:` are stateless — `supportsStatefulLifecy
 `MockNodeProvisioner` gains `suspend()`, `resume()`, `supportsStatefulLifecycle()` with configurable
 behavior (success/failure/pending-approval per call, call recording).
 
-## 9. CloudEvent Impact
+## 9. ReconciliationLoop Impact
+
+### 9.1 Fault feedback (faultFeedback)
+
+`ReconciliationLoop.faultFeedback()` currently uses a binary check (`removalNodeIds.contains()`)
+to determine fault type. With four step types, this becomes a `Map<NodeId, StepAction>` that
+tracks which action each node was planned for:
+
+```java
+Map<NodeId, StepAction> plannedActions = new HashMap<>();
+plan.removals().forEach(s -> plannedActions.put(s.node().id(), StepAction.DEPROVISION));
+plan.suspensions().forEach(s -> plannedActions.put(s.node().id(), StepAction.SUSPEND));
+plan.resumptions().forEach(s -> plannedActions.put(s.node().id(), StepAction.RESUME));
+plan.additions().forEach(s -> plannedActions.put(s.node().id(), StepAction.PROVISION));
+```
+
+Fault type mapping: PROVISION → PROVISION_FAILED, DEPROVISION → DEPROVISION_FAILED,
+SUSPEND → SUSPEND_FAILED, RESUME → RESUME_FAILED.
+
+### 9.2 Recovery detection (emitCycleEvents)
+
+Recovery detection currently checks `status == NodeStatus.PRESENT`. With SUSPENDED as a
+legitimate stable status, recovery detection must be target-status-aware:
+
+A node is recovered when it reaches its target status:
+- Target ACTIVE: recovered when actual is PRESENT
+- Target SUSPENDED: recovered when actual is SUSPENDED
+
+This requires the recovery check to read `DesiredNode.targetStatus()` from the desired graph.
+
+### 9.3 CompletionCondition
+
+`CompletionCondition.allPresent()` checks for `PRESENT` status on all nodes. In a lifecycle
+graph with `targetStatus=SUSPENDED` nodes, those nodes would be `SUSPENDED` when correctly
+converged — not `PRESENT` — blocking lifecycle phase transitions.
+
+Add a new built-in:
+
+```java
+static CompletionCondition allSatisfied() {
+    return (desired, actual) -> desired.nodes().entrySet().stream().allMatch(e -> {
+        NodeStatus status = actual.statuses().getOrDefault(e.getKey(), NodeStatus.UNKNOWN);
+        return switch (e.getValue().targetStatus()) {
+            case ACTIVE -> status == NodeStatus.PRESENT;
+            case SUSPENDED -> status == NodeStatus.SUSPENDED;
+        };
+    });
+}
+```
+
+`allPresent()` is preserved for backward compatibility but is incompatible with graphs
+containing suspended nodes.
+
+## 9a. CloudEvent Impact
 
 New event types in `DesiredStateEventTypes`:
 - `io.casehub.desiredstate.node.suspended` — emitted when a node is successfully suspended
 - `io.casehub.desiredstate.node.resumed` — emitted when a node is successfully resumed
 
 Data records: `NodeSuspendedData`, `NodeResumedData` (mirror `NodeRecoveredData` pattern).
+
+`ReconciliationCompletedData` gains `suspensionsCount` and `resumptionsCount` fields to
+reflect the full transition workload per cycle.
 
 ## 10. Persistence Impact
 
@@ -353,9 +495,15 @@ that fail produce `FaultEvent`s through the existing fault path.
 
 ### 10.2 ReconciliationStateStore / GraphSerializer
 
-`DesiredNode` serialization must include the `targetStatus` field. `GraphSerializer` (used by
-`JpaReconciliationStateStore`) needs to handle the new field — Jackson will serialize it naturally
-since it's a record component.
+`GraphSerializer` uses manual serialization (not automatic Jackson record handling). Adding
+`targetStatus` to `DesiredNode` requires explicit changes:
+
+1. **Serialization:** Add `nodeObj.put("targetStatus", node.targetStatus().name())`.
+2. **Deserialization:** Read `targetStatus` field, `TargetStatus.valueOf(...)`, pass to new 5-arg
+   constructor.
+3. **Backward compatibility:** Existing persisted JSON blobs lack `targetStatus`. The deserializer
+   must default to `TargetStatus.ACTIVE` when the field is absent — no schema migration needed,
+   but the deserialization code must handle the missing field gracefully.
 
 ## 11. Composition Engine Impact
 
@@ -382,21 +530,24 @@ carries it through.
 ## 13. Scope Boundaries
 
 **In scope:**
-- api/ types (TargetStatus, NodeStatus.SUSPENDED, StepAction.SUSPEND/RESUME, SuspendResult,
-  ResumeResult, SuspendContext, ResumeContext, NodeProvisioner changes, NodeProvisionerRouter changes,
-  HumanNodeHandler changes, HumanGating changes)
-- runtime-core/ (TransitionPlanner, SimpleTransitionExecutor, DefaultNodeProvisionerRouter)
+- api/ types (TargetStatus, NodeStatus.SUSPENDED, StepAction.SUSPEND/RESUME, FaultType.SUSPEND_FAILED/
+  RESUME_FAILED, SuspendResult, ResumeResult, SuspendContext, ResumeContext, NodeProvisioner changes,
+  NodeProvisionerRouter changes, HumanNodeHandler changes, HumanGating → EnumSet-based record,
+  CompletionCondition.allSatisfied())
+- runtime-core/ (TransitionPlanner with Predicate parameter, SimpleTransitionExecutor,
+  DefaultNodeProvisionerRouter, ReconciliationLoop fault feedback + recovery detection)
 - testing/ (MockNodeProvisioner)
-- TransitionPlan structure changes
-- CloudEvent types
+- TransitionPlan structure changes (suspensions + resumptions lists)
+- CloudEvent types + ReconciliationCompletedData counts
+- engine-adapter/ compile-time fixes (fail-fast guard + placeholder switch cases)
+- persistence-jpa/ GraphSerializer targetStatus serialization
 
-**Deferred:**
-- engine-adapter/ CaseTransitionExecutor changes (separate issue — requires engine-flow coordination)
+**Deferred (to be filed as separate issues):**
+- engine-adapter/ full CaseTransitionExecutor suspend/resume support (case bindings, workflow phases)
 - work-adapter/ PendingApproval handler changes for suspend/resume
-- YAML plugin suspend/resume sections (separate issue — depends on yaml-step-runtime)
-- Annotation/YAML/TS-DSL surface attributes (separate issues per surface)
+- YAML plugin suspend/resume step sections
+- Annotation/YAML/TS-DSL surface `targetStatus` attributes
 - HookDescriptor suspend/resume hooks
-- Persistence migration for targetStatus (GraphSerializer handles it naturally; no schema migration needed)
 
 ## References
 
