@@ -1,0 +1,15 @@
+# Work Plan — issue-150-orchestration-primitives
+
+## State
+branch: issue-150-orchestration-primitives
+state: scaffolded
+project-sha: 
+date: 
+issue-repo: casehubio/casehub-desiredstate
+covers: 150
+design-repo: 
+design-section-hashes: 
+flyway-next-v: 
+
+## Queue
+- [ ] casehubio/casehub-desiredstate#150 — Issue #150 ← active
