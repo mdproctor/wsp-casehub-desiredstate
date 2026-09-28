@@ -222,6 +222,11 @@ methods. Extract the pure descriptor-building logic (Jandex → descriptor
 records) into annotations/core/ as a `DescriptorScanner` utility class.
 Both the Quarkus deployment and Spring auto-config use the same scanner.
 
+The Quarkus deployment module gains a dependency on annotations/core/
+for the shared scanner. This is safe — annotations/core/ is pure Java +
+Jandex (no Quarkus runtime dependency). The deployment module already
+depends on Jandex transitively.
+
 ## yaml/spring/, ts-dsl/spring/, plugin/spring/
 
 All follow the same pattern:
