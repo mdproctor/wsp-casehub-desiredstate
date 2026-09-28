@@ -2,30 +2,22 @@
 
 ## Last Session
 
-Designed and partially implemented the cross-domain orchestration framework (#140).
-Brainstorming produced 15 validated decisions (standard review, 2 rounds). 787-line
-spec written and reviewed. Implementation plan: 7 tasks, 3 batches. Batches 1-2
-complete, Batch 3 remaining.
+Completed #152 (suspend/resume lifecycle verbs on NodeProvisioner SPI) end-to-end:
+brainstorm → design spec → light design review (15 findings addressed) → implementation
+plan → 10 tasks across 3 batches → code review → squash to 3 commits → landed on main.
+Issue closed.
 
-Key design choice: user overrode review's YAGNI cut on hierarchical — "we build for
-the future." Push model (D2) kept as genuine improvement — eliminates GoalCompiler
-type erasure entirely.
+Then resumed #149 (YamlGraph CSV forEach) from the pause stack. Rebased onto main
+(one conflict in YamlGraphRecorder.java — resolved by taking #149's inlined version).
+Branch compiles clean. No new #149 code written this session.
 
-**Batches 1-2 (5 tasks, 29 tests):**
-- Foundation types: DomainId, DomainRegistration, DomainPhaseState, TenantCompositionState
-- CrossDomainCompositionEngine: registration, validation (provides/requires/cycles/node IDs),
-  overlay composition, type-based cross-domain edges, per-domain lifecycle tracking via
-  GlobalReconciliationListener, SituationRecompiler integration (handleReplan)
-- DesiredStateReplanDispatch modified to delegate when composition is active
+**HumanGating design deviation:** spec recommended EnumSet-based record migration,
+blocked by Java annotation attribute type constraint (JLS §9.6.1). Kept as enum with
+new SUSPEND_ONLY/RESUME_ONLY values. Captured as garden gotcha GE-20260928-bf3f42.
 
-**Remaining — Batch 3 (2 tasks):**
-- Task 6: Hierarchical mode — DomainNodeSpec, DomainNodeProvisioner, DomainActualStateAdapter,
-  meta-loop, inner loops via ReconciliationLoop.Builder
-- Task 7: End-to-end integration tests (flattened + hierarchical + backward compat)
+## Branch State
 
-## Branch
-
-`issue-140-cross-domain-orchestration` — project + workspace
+**Active:** `issue-149-yamlgraph-csv-foreach` — 4 commits ahead of main, rebased.
 
 ## Cross-Module
 
@@ -33,9 +25,9 @@ Pre-existing `work-adapter` test failure (WorkItemRef constructor mismatch) — 
 
 ## References
 
-| Artifact | Path |
-|----------|------|
-| Design spec | `specs/issue-140-cross-domain-orchestration/2026-09-13-cross-domain-orchestration-design.md` |
-| Decisions (15) | `specs/issue-140-cross-domain-orchestration/decisions.md` |
-| Implementation plan | `plans/2026-09-13-cross-domain-orchestration.md` |
-| Journal | `JOURNAL.md` |
+| Artifact | Location |
+|----------|----------|
+| #152 spec | `docs/specs/issue-152-suspend-resume-lifecycle/` |
+| #152 diary | `docs/blog/2026-09-28-suspend-resume-lifecycle.md` |
+| #149 .plan | workspace `.plan` |
+| Garden entry | `~/.hortora/garden/jvm/GE-20260928-bf3f42.md` |
