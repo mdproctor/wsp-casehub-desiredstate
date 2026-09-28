@@ -2,30 +2,19 @@
 
 ## Last Session
 
-Designed and partially implemented the cross-domain orchestration framework (#140).
-Brainstorming produced 15 validated decisions (standard review, 2 rounds). 787-line
-spec written and reviewed. Implementation plan: 7 tasks, 3 batches. Batches 1-2
-complete, Batch 3 remaining.
+Completed #149 (YamlGraph CSV forEach + ObjectVariableSource typed resolution) end-to-end:
+resumed from pause stack, implemented ObjectVariableSource wiring, widened YamlGraph.variables
+to Map<String,Object>, wired CSV data source dispatch, added PARSE_BOOLEAN_LIKE_WORDS_AS_STRINGS
+to all YAML ObjectMapper instances. Branch audit caught a Spring parity gap (Factory missing
+CSV wiring) — fixed before landing. Squashed to 2 commits, landed on main.
 
-Key design choice: user overrode review's YAGNI cut on hierarchical — "we build for
-the future." Push model (D2) kept as genuine improvement — eliminates GoalCompiler
-type erasure entirely.
+Key finding: widening a Jackson YAML record field from Map<String,String> to Map<String,Object>
+silently coerces YAML 1.1 boolean-like words (yes/no/on/off) from String to Boolean. Fix:
+YAMLParser.Feature.PARSE_BOOLEAN_LIKE_WORDS_AS_STRINGS. Captured as garden entry GE-20260928-1e3a2e.
 
-**Batches 1-2 (5 tasks, 29 tests):**
-- Foundation types: DomainId, DomainRegistration, DomainPhaseState, TenantCompositionState
-- CrossDomainCompositionEngine: registration, validation (provides/requires/cycles/node IDs),
-  overlay composition, type-based cross-domain edges, per-domain lifecycle tracking via
-  GlobalReconciliationListener, SituationRecompiler integration (handleReplan)
-- DesiredStateReplanDispatch modified to delegate when composition is active
+## Branch State
 
-**Remaining — Batch 3 (2 tasks):**
-- Task 6: Hierarchical mode — DomainNodeSpec, DomainNodeProvisioner, DomainActualStateAdapter,
-  meta-loop, inner loops via ReconciliationLoop.Builder
-- Task 7: End-to-end integration tests (flattened + hierarchical + backward compat)
-
-## Branch
-
-`issue-140-cross-domain-orchestration` — project + workspace
+On `main`. No active branch. #149 closed, #150 recommended next.
 
 ## Cross-Module
 
@@ -33,9 +22,8 @@ Pre-existing `work-adapter` test failure (WorkItemRef constructor mismatch) — 
 
 ## References
 
-| Artifact | Path |
-|----------|------|
-| Design spec | `specs/issue-140-cross-domain-orchestration/2026-09-13-cross-domain-orchestration-design.md` |
-| Decisions (15) | `specs/issue-140-cross-domain-orchestration/decisions.md` |
-| Implementation plan | `plans/2026-09-13-cross-domain-orchestration.md` |
-| Journal | `JOURNAL.md` |
+| Artifact | Location |
+|----------|----------|
+| #149 spec | `specs/issue-149-yamlgraph-csv-foreach/` |
+| #149 diary | `blog/2026-09-28-mdp01-yaml-typed-variables.md` |
+| Garden entry | `~/.hortora/garden/jvm/GE-20260928-1e3a2e.md` |
