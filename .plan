@@ -2,7 +2,7 @@
 
 ## State
 branch: issue-152-suspend-resume-lifecycle
-state: closing:verified
+state: closing:promoted
 project-sha: 
 date: 
 issue-repo: casehubio/casehub-desiredstate
