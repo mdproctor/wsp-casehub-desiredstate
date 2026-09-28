@@ -52,3 +52,5 @@ merge_pass=done
 stamp_pass=done
 cleanup_main=done
 wip_commit_project=done
+wip_commit_workspace=done
+push_and_stack_mechanical_attempt=1
