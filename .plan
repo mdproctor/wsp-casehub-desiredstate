@@ -13,16 +13,16 @@ flyway-next-v: none
 
 ## Queue
 - [ ] casehubio/casehub-desiredstate#152 — Issue #152 ← active
-  - [ ] Batch 1: API Foundation
-    - [ ] Task 1: TargetStatus + StepAction + FaultType
-    - [ ] Task 2: HumanGating EnumSet migration
-    - [ ] Task 3: SuspendResult ResumeResult Contexts NodeStatus
-    - [ ] Task 4: DesiredNode targetStatus + SPI methods
-    - [ ] Task 5: TransitionPlan + CloudEvent types
-  - [ ] Batch 2: Runtime
-    - [ ] Task 6: DefaultNodeProvisionerRouter dispatch
-    - [ ] Task 7: TransitionPlanner decision matrix
-    - [ ] Task 8: SimpleTransitionExecutor suspend resume
-    - [ ] Task 9: ReconciliationLoop fault + recovery + events
-  - [ ] Batch 3: Testing + Guards
-    - [ ] Task 10: MockNodeProvisioner + CTE guard + GraphSerializer
+  - [x] Batch 1: API Foundation
+    - [x] Task 1: TargetStatus + StepAction + FaultType
+    - [x] Task 2: HumanGating EnumSet migration
+    - [x] Task 3: SuspendResult ResumeResult Contexts NodeStatus
+    - [x] Task 4: DesiredNode targetStatus + SPI methods
+    - [x] Task 5: TransitionPlan + CloudEvent types
+  - [x] Batch 2: Runtime
+    - [x] Task 6: DefaultNodeProvisionerRouter dispatch
+    - [x] Task 7: TransitionPlanner decision matrix
+    - [x] Task 8: SimpleTransitionExecutor suspend resume
+    - [x] Task 9: ReconciliationLoop fault + recovery + events
+  - [x] Batch 3: Testing + Guards
+    - [x] Task 10: MockNodeProvisioner + CTE guard + GraphSerializer
