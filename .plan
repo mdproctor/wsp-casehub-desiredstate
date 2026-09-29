@@ -1,0 +1,15 @@
+# Work Plan — issue-135-plugin-testing-framework
+
+## State
+branch: issue-135-plugin-testing-framework
+state: scaffolded
+project-sha: 
+date: 
+issue-repo: casehubio/casehub-desiredstate
+covers: 135
+design-repo: 
+design-section-hashes: 
+flyway-next-v: none
+
+## Queue
+- [ ] casehubio/casehub-desiredstate#135 — Issue #135 ← active
