@@ -1,1 +1,2 @@
 desiredstate:issue-157-idempotent-provisioning=pushed
+default=promoted
