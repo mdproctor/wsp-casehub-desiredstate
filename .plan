@@ -2,7 +2,7 @@
 
 ## State
 branch: issue-158-partial-convergence-reporting
-state: closing:review
+state: closing:verified
 project-sha: 
 date: 
 issue-repo: casehubio/casehub-desiredstate
@@ -10,7 +10,7 @@ covers: 158
 design-repo: 
 design-section-hashes: 
 flyway-next-v: none
-
 evidence-era: true
+
 ## Queue
-- [ ] casehubio/casehub-desiredstate#158 — Issue #158 ← active
+- [x] casehubio/casehub-desiredstate#158 — Issue #158
