@@ -1,1 +1,1 @@
-# Design Journal — issue-158-partial-convergence-reporting
+# Design Journal — issue-155-spring-generators

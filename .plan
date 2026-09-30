@@ -1,0 +1,15 @@
+# Work Plan — issue-155-spring-generators
+
+## State
+branch: issue-155-spring-generators
+state: scaffolded
+project-sha: 
+date: 
+issue-repo: casehubio/casehub-desiredstate
+covers: 155,143
+design-repo: 
+design-section-hashes: 
+flyway-next-v: none
+
+## Queue
+- [ ] casehubio/casehub-desiredstate#155 — Issue #155 ← active
