@@ -1,0 +1,26 @@
+# Work Plan — issue-160-drift-policy-layer
+
+## State
+branch: issue-160-drift-policy-layer
+state: closing:promoted
+project-sha: 
+date: 
+issue-repo: casehubio/casehub-desiredstate
+covers: 160
+design-repo: 
+design-section-hashes: 
+flyway-next-v: 
+
+evidence-era: true
+## Queue
+- [ ] casehubio/casehub-desiredstate#160 — Issue #160 ← active
+  - [x] Batch 1: API Types
+    - [x] Task 1: RevertMode RevertCondition ExemptionSpec
+    - [x] Task 2: DriftPolicy DriftDecision DriftContext Exemption
+    - [x] Task 3: ExemptionStore InMemoryExemptionStore NodeDriftExemptedData
+  - [x] Batch 2: Engine+Loop
+    - [x] Task 4: DriftPolicyEngine
+    - [x] Task 5: ReconciliationLoop+TransitionPlanner integration
+  - [x] Batch 3: Wiring+Fixtures
+    - [x] Task 6: CDI Spring test fixtures
+    - [x] Task 7: CLAUDE.md update
