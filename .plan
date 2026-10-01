@@ -2,7 +2,7 @@
 
 ## State
 branch: issue-130-plan-preview-approval-gate
-state: active
+state: closing:review
 project-sha: 
 date: 
 issue-repo: casehubio/casehub-desiredstate
@@ -11,5 +11,6 @@ design-repo:
 design-section-hashes: 
 flyway-next-v: 
 
+evidence-era: true
 ## Queue
 - [x] casehubio/casehub-desiredstate#130 — Issue #130
