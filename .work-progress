@@ -1,6 +1,6 @@
 report_init=done
 code_review_attempt=1
-last_yielded=handoff_write
+last_yielded=load_context
 _branch=issue-160-drift-policy-layer
 code_review=done
 branch_audit_conformance=done
@@ -91,3 +91,9 @@ arc42_scan_wrap_attempt=1
 arc42_scan_wrap=done
 handoff_write_attempt=1
 handoff_write=done
+wip_commit=done
+auto_resolve_transient=done
+lifecycle_continue=done
+health_check=done
+load_context_attempt=1
+load_context=done
