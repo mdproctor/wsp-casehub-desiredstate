@@ -13,3 +13,13 @@ flyway-next-v:
 
 ## Queue
 - [ ] casehubio/casehub-desiredstate#160 — Issue #160 ← active
+  - [ ] Batch 1: API Types
+    - [ ] Task 1: RevertMode RevertCondition ExemptionSpec
+    - [ ] Task 2: DriftPolicy DriftDecision DriftContext Exemption
+    - [ ] Task 3: ExemptionStore InMemoryExemptionStore NodeDriftExemptedData
+  - [ ] Batch 2: Engine+Loop
+    - [ ] Task 4: DriftPolicyEngine
+    - [ ] Task 5: ReconciliationLoop+TransitionPlanner integration
+  - [ ] Batch 3: Wiring+Fixtures
+    - [ ] Task 6: CDI Spring test fixtures
+    - [ ] Task 7: CLAUDE.md update
