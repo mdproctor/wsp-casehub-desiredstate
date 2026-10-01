@@ -47,22 +47,26 @@ public sealed interface DriftDecision {
 #### ExemptionSpec
 
 ```java
-public record ExemptionSpec(RevertMode revertMode,
-                            RevertCondition revertCondition,
+public record ExemptionSpec(RevertCondition revertCondition,
                             Map<String, String> metadata) {
     public ExemptionSpec {
-        Objects.requireNonNull(revertMode);
         Objects.requireNonNull(revertCondition);
         metadata = metadata != null ? Map.copyOf(metadata) : Map.of();
     }
 }
 ```
 
+`RevertMode` is not a separate field — it is derivable from `RevertCondition.mode()` (see below). This avoids the consistency hazard of mismatched mode/condition pairs.
+
 #### RevertMode
 
+Enum for serialization and display. Derived from `RevertCondition`, never stored independently in `ExemptionSpec`.
+
 ```java
-public enum RevertMode { DURATION, SCHEDULE, EVENT, NEVER }
+public enum RevertMode { DURATION, SCHEDULE, STATUS_CHANGE, NEVER }
 ```
+
+Note: The original platform#486 "event" revert mode ("revert when no-motion for 10m") describes domain events, not `NodeStatus` changes. Arbitrary domain event revert is handled by imperative `exemptionStore.revoke()` from domain event handlers. `STATUS_CHANGE` covers the reconciliation-level concern: revert when the node's actual status transitions (e.g., DRIFTED → PRESENT).
 
 #### RevertCondition
 
@@ -70,6 +74,16 @@ Declarative sealed type — serializable, inspectable, loggable. Replaces the or
 
 ```java
 public sealed interface RevertCondition {
+
+    default RevertMode mode() {
+        return switch (this) {
+            case OnDuration d -> RevertMode.DURATION;
+            case OnSchedule s -> RevertMode.SCHEDULE;
+            case OnStatusChange e -> RevertMode.STATUS_CHANGE;
+            case Never n -> RevertMode.NEVER;
+        };
+    }
+
     record OnDuration(Duration duration) implements RevertCondition {
         public OnDuration { Objects.requireNonNull(duration); }
     }
@@ -100,6 +114,8 @@ public record DriftContext(String tenancyId, DesiredStateGraph graph,
 }
 ```
 
+**Graph scope note:** `DriftContext.graph` receives the working graph for the current reconciliation cycle. In `reconcile()`, this is the full desired graph. In `reconcileTypes()` (interval-grouped reconciliation), this is the type-filtered graph. A `DriftPolicy` that makes decisions based on graph topology will receive an incomplete graph during type-filtered reconciliation — this is consistent with how `FaultPolicy` receives the working graph today.
+
 #### Exemption
 
 ```java
@@ -111,11 +127,24 @@ public record Exemption(NodeId nodeId, ExemptionSpec spec,
         Objects.requireNonNull(grantedAt);
     }
 
-    public boolean isExpired(Instant now) {
-        return expiresAt != null && now.isAfter(expiresAt);
+    public boolean shouldRevert(Instant now, NodeStatus currentStatus) {
+        if (expiresAt != null && now.isAfter(expiresAt)) {
+            return true;
+        }
+        return switch (spec.revertCondition()) {
+            case RevertCondition.OnDuration d ->
+                now.isAfter(grantedAt.plus(d.duration()));
+            case RevertCondition.OnSchedule s ->
+                false; // cron evaluation delegated to platform utility
+            case RevertCondition.OnStatusChange sc ->
+                sc.triggerStatuses().contains(currentStatus);
+            case RevertCondition.Never n -> false;
+        };
     }
 }
 ```
+
+`shouldRevert()` pattern-matches on the `RevertCondition` variant, checking both time-based expiry and status-based conditions. `OnSchedule` evaluation is deferred to platform cron utilities (out of scope for this issue).
 
 #### ExemptionStore SPI
 
@@ -194,17 +223,20 @@ public class DriftPolicyEngine {
 ```
 for each desired node with actual status DRIFTED:
     1. Check existing exemption in ExemptionStore:
-       - If expired (OnDuration) or condition met (OnStatusChange/OnSchedule):
+       - If shouldRevert(now, currentStatus) returns true:
          revoke and proceed to step 2
-       - If active and not expired: add to exemptNodes, emit
-         NodeDriftExemptedData, continue to next node
+       - If active and not reverted: add to exemptNodes,
+         continue to next node
     2. Evaluate DriftPolicyEngine:
        - EXEMPT: compute expiresAt from RevertCondition, call
-         exemptionStore.grant(), add to exemptNodes, emit
-         NodeDriftExemptedData
+         exemptionStore.grant(), add to exemptNodes
        - RECONCILE: create FaultEvent, evaluate through
          FaultPolicyEngine (existing behavior)
 ```
+
+**Event emission:** `NodeDriftExemptedData` events are NOT emitted inside `detectDrift()`. All CloudEvent emission is deferred to `emitCycleEvents()`, which iterates the `exemptNodes` set — same pattern as `NodeDriftedData` emission from the `driftedNodes` set. This preserves the existing architectural separation: `detectDrift()` is a computation step with no side effects beyond its return value and output parameters.
+
+**FaultPolicy interaction:** When a node is exempted, no `FaultEvent(NODE_DEGRADED)` is created. This means existing `FaultPolicy` implementations (e.g., `SchemaDriftFaultPolicy`, `ZoneRebalanceFaultPolicy`) will never see exempted nodes. This is by design — an exempted node should not trigger fault responses. However, this means registering a `DriftPolicy` that exempts a node type will silently suppress ALL `FaultPolicy` processing for that node's drift. Domain developers must be aware that drift exemption is "all or nothing" — it suppresses both fault processing and re-provisioning.
 
 **Method signature change:**
 ```java
@@ -239,9 +271,34 @@ public TransitionPlan plan(DesiredStateGraph desired, ActualState actual,
                            Set<NodeId> exemptNodes)
 ```
 
-**decideAction change:** When `status == DRIFTED && target == ACTIVE`, check `exemptNodes.contains(nodeId)` — if true, return `null` (skip).
+**Exemption check in caller loop, not in decideAction():** `decideAction(NodeStatus, TargetStatus)` remains a pure stateless classification function (exhaustive switch on the status×target matrix). The exemption check is applied AFTER `decideAction()` returns, in the calling loop inside `plan()`:
+
+```java
+StepAction action = decideAction(status, node.targetStatus());
+if (action == null) { continue; }
+if (status == NodeStatus.DRIFTED && exemptNodes.contains(nodeId)) { continue; }
+```
+
+This preserves `decideAction()` as a pure status classifier and adds the exemption as an override in the caller — where `nodeId` and `exemptNodes` context naturally live.
 
 Backward-compatible: existing overloads pass `Set.of()` for exemptNodes.
+
+#### TenantLoop.plan() Changes
+
+The private `TenantLoop.plan()` method gains a `Set<NodeId> exemptNodes` parameter and forwards it to `TransitionPlanner.plan()`:
+
+```java
+private TransitionPlan plan(DesiredStateGraph desired, ActualState actual,
+                            Set<NodeId> exemptNodes) {
+    DesiredStateGraph previousDesired =
+        reconciliationStateStore.load(tenancyId).orElse(null);
+    TransitionPlan plan = planner.plan(desired, actual, previousDesired,
+        type -> router != null && router.supportsStatefulLifecycle(type),
+        exemptNodes);
+    reconciliationStateStore.store(tenancyId, desired);
+    return plan;
+}
+```
 
 #### ReconciliationEventEmitter
 
@@ -268,20 +325,24 @@ New field: `int exemptedCount` — number of drift-exempt nodes this cycle.
 
 ### CDI Wiring (runtime/)
 
+No separate `CdiDriftPolicyEngine` bridge class — follows the `FaultPolicyEngine` pattern where the engine is produced directly in `RuntimeBeans`.
+
+No `DefaultDriftPolicy` bean — `DriftPolicyEngine.evaluate()` already returns `DriftDecision.reconcile()` when the policy list is empty or all policies return RECONCILE. A `@DefaultBean` that returns RECONCILE adds no behavior. `FaultPolicy` has no equivalent default bean.
+
 | Bean | Type | Notes |
 |------|------|-------|
-| `CdiDriftPolicyEngine` | CDI bridge | `Instance<DriftPolicy>` → sorted by `@Priority` → `DriftPolicyEngine` |
-| `DefaultDriftPolicy` | `@DefaultBean` | Returns `DriftDecision.reconcile()` for all nodes |
-| `DefaultExemptionStore` | `@DefaultBean @ApplicationScoped` | Wraps `InMemoryExemptionStore` |
+| `DefaultExemptionStore` | `@DefaultBean @ApplicationScoped` | Wraps `InMemoryExemptionStore`. Yields to JPA store when persistence-jpa on classpath |
 | `ExemptionEvictionListener` | `@ApplicationScoped` | `GlobalReconciliationListener` for eviction |
-| `RuntimeBeans` additions | `@Produces` | Wire `DriftPolicyEngine` and `ExemptionStore` into `ReconciliationLoop.Builder` |
+| `RuntimeBeans` additions | `@Produces` | `DriftPolicyEngine` from `Instance<DriftPolicy>` sorted by `@Priority`; wire `DriftPolicyEngine` and `ExemptionStore` into `ReconciliationLoop` constructor |
+
+**ReconciliationLoop constructor:** The public constructor gains `DriftPolicyEngine` and `ExemptionStore` parameters (same pattern as the existing `FaultPolicyEngine` and `ReconciliationStateStore` parameters). `RuntimeBeans` produces these and passes them to the constructor. The builder also gains corresponding methods for test/consumer use.
 
 ### Spring Auto-Configuration (runtime-spring/)
 
-`SpringDriftPolicyAutoConfiguration`:
+All new beans added to the existing `DesiredStateRuntimeAutoConfiguration` class (not a separate auto-configuration — follows the established single-class convention):
 - `@Bean DriftPolicyEngine` — collects `List<DriftPolicy>`, sorts by `@Order`/`@Priority`
 - `@Bean @ConditionalOnMissingBean ExemptionStore` — defaults to `InMemoryExemptionStore`
-- Wire into `ReconciliationLoop.Builder`
+- Wire into `ReconciliationLoop` constructor
 
 ### Test Fixtures (testing/)
 
@@ -310,7 +371,8 @@ New field: `int exemptedCount` — number of drift-exempt nodes this cycle.
   - `OnStatusChange` revert → reconciled when node status matches trigger
   - Multiple policies with `@Priority` → highest-priority EXEMPT wins
   - Imperative `exemptionStore.grant()` → node exempt without DriftPolicy involvement
-  - Imperative `exemptionStore.revoke()` → node reconciled on next cycle even if policy would exempt
+  - Imperative `exemptionStore.revoke()` + policy returns RECONCILE → node reconciled on next cycle
+  - Imperative `exemptionStore.revoke()` without policy change → policy re-grants on next cycle (documenting the D5 contract: revoke must be paired with policy input updates)
   - Retriggering: policy returns fresh EXEMPT each cycle, duration resets
   - `ReconciliationCompletedData.exemptedCount` reflects exempt node count
   - Type-filtered `reconcileTypes()` respects exemptions
@@ -330,7 +392,7 @@ New field: `int exemptedCount` — number of drift-exempt nodes this cycle.
 | `DriftDecision` | `api/` | `io.casehub.desiredstate.api` |
 | `DriftContext` | `api/` | `io.casehub.desiredstate.api` |
 | `ExemptionSpec` | `api/` | `io.casehub.desiredstate.api` |
-| `RevertMode` | `api/` | `io.casehub.desiredstate.api` |
+| `RevertMode` | `api/` | `io.casehub.desiredstate.api` (enum, derived via `RevertCondition.mode()`) |
 | `RevertCondition` | `api/` | `io.casehub.desiredstate.api` |
 | `Exemption` | `api/` | `io.casehub.desiredstate.api` |
 | `ExemptionStore` | `api/` | `io.casehub.desiredstate.api` |
@@ -338,10 +400,9 @@ New field: `int exemptedCount` — number of drift-exempt nodes this cycle.
 | `NodeDriftExemptedData` | `api/` | `io.casehub.desiredstate.api` |
 | `DriftPolicyEngine` | `runtime-core/` | `io.casehub.desiredstate.runtime` |
 | `ExemptionEvictionListener` | `runtime/` | `io.casehub.desiredstate.runtime` |
-| `CdiDriftPolicyEngine` | `runtime/` | `io.casehub.desiredstate.runtime` |
-| `DefaultDriftPolicy` | `runtime/` | `io.casehub.desiredstate.runtime` |
 | `DefaultExemptionStore` | `runtime/` | `io.casehub.desiredstate.runtime` |
-| `SpringDriftPolicyAutoConfiguration` | `runtime-spring/` | `io.casehub.desiredstate.runtime.spring` |
+| `RuntimeBeans` additions | `runtime/` | `@Produces DriftPolicyEngine` from `Instance<DriftPolicy>` |
+| `DesiredStateRuntimeAutoConfiguration` additions | `runtime-spring/` | `@Bean DriftPolicyEngine`, `@Bean ExemptionStore` |
 | `MockDriftPolicy` | `testing/` | `io.casehub.desiredstate.testing` |
 | `MockExemptionStore` | `testing/` | `io.casehub.desiredstate.testing` |
 
