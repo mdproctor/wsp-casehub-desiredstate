@@ -1,12 +1,12 @@
-# Handoff — casehub-desiredstate
+# HANDOFF — casehub-desiredstate
 
 ## Last Session
 
-Implemented #157 — idempotent provisioning via `ProvisionResult.AlreadyConverged` and `StepOutcome.AlreadyConverged` sealed variants. Distinct `NODE_ALREADY_CONVERGED` CloudEvent enables consumers to distinguish real mutations from idempotent no-ops. Updated both teaching examples (dungeon, pipeline) with check-before-dispatch pattern. All exhaustive switch sites across engine-adapter, plugin-testing, and CbrProposalTracker updated.
+Designed and implemented both #130 (plan preview/approval gate) and #159 (ordering constraints/flat-graph fast-path) at the runtime level. PlanApprovalGate injects between plan() and execute() in ReconciliationLoop with skip-and-recheck semantics. OrderingConstraint lives on DesiredStateGraph; TransitionPlanner resolves them as virtual in-degree entries during BFS. Decision review (3 rounds) surfaced D9: plan-level and per-node approval coexist as independent concerns. 419 runtime tests pass.
 
-## Branch State
+## Immediate Next Step
 
-On `main`. No active branch. #157 closed, landed as `a7d7983`.
+Batch 3: surface integration — add ordering constraint declarations to YAML (YamlGraph + YamlGoalCompilerFactory), annotations (@OrderBefore + DescriptorScanner + GoalCompilerFactory), and TS DSL (TsEnvelope + TsGoalCompilerFactory). Plan at `plans/2026-10-01-plan-preview-and-edge-handling.md`, Tasks 5-7.
 
 ## Cross-Module
 
@@ -17,6 +17,8 @@ Pre-existing `yaml/runtime` test failure (DesiredStateModuleBridgeTest — missi
 
 | Artifact | Location |
 |----------|----------|
-| #157 diary | `blog/2026-09-30-mdp01-idempotent-provisioning.md` |
-| Consumer guide | `docs/guides/consumer-guide.md` (updated with AlreadyConverged) |
-| Suggested next | #158 — partial convergence reporting (direct follow-on) |
+| Design spec | `specs/issue-130-plan-preview-approval-gate/2026-10-01-plan-preview-and-edge-handling-design.md` |
+| Decisions | `specs/issue-130-plan-preview-approval-gate/decisions.md` |
+| Implementation plan | `plans/2026-10-01-plan-preview-and-edge-handling.md` |
+| Decision review | `reviews/casehub-desiredstate/issue-130-decision-20261001-153802/` |
+| Design journal | `JOURNAL.md` |
