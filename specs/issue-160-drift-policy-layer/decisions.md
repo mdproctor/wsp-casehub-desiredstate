@@ -29,16 +29,17 @@
 
 ## D3: DriftPolicy SPI shape — chain via DriftPolicyEngine
 
-**Choice:** Multiple DriftPolicy beans aggregated by DriftPolicyEngine, first-EXEMPT-wins semantics
+**Choice:** Multiple DriftPolicy beans aggregated by DriftPolicyEngine, first-EXEMPT-wins semantics with `@Priority`-based evaluation ordering (highest priority evaluates first)
 **Alternatives:**
 - Single policy, no chain — simpler but breaks multi-domain composition (CrossDomainCompositionEngine already supports multiple domains contributing SPIs)
 - Priority-ordered chain with RECONCILE overriding EXEMPT — overly complex, the default IS reconcile, policies can only escalate to exempt
 - All-policies-run with EXEMPT/RECONCILE arbitration (FaultPolicyEngine model) — FaultPolicyEngine merges MUTATIONS (additive, can conflict); DriftPolicyEngine evaluates PERMISSIONS (binary decision). These are different semantic domains — applying the FaultPolicyEngine composition model to a permission decision adds complexity without benefit
-**Rationale:** Follows the FaultPolicy/FaultPolicyEngine structural pattern (multiple SPI beans composed by an engine). The composition semantics differ because the domains differ: FaultPolicyEngine merges additive mutations with conflict detection; DriftPolicyEngine evaluates a binary permission where RECONCILE is the default and any policy can grant EXEMPT. Multiple domains can contribute policies. First-EXEMPT-wins is the natural model for permission grants — analogous to RBAC where any granted role suffices.
-**Trade-offs:** Multiple policies evaluating per node per cycle has a performance cost, but this is bounded by the number of DriftPolicy beans (typically 1-3 per deployment) and is negligible compared to actual state reads and provisioning. First-EXEMPT-wins means a single policy can override the default for any node — cross-domain integrity depends on drift exemption not violating provides/requires contracts (it doesn't — a DRIFTED node is still PRESENT from a dependency perspective).
-**Sources:** FaultPolicyEngine.java (chain evaluation pattern), CrossDomainCompositionEngine (multi-domain SPI contribution)
+- Non-deterministic ordering — would make exemption properties (duration, revert condition) unpredictable when multiple policies can EXEMPT the same node
+**Rationale:** Follows the FaultPolicy/FaultPolicyEngine structural pattern (multiple SPI beans composed by an engine). The composition semantics differ because the domains differ: FaultPolicyEngine merges additive mutations with conflict detection; DriftPolicyEngine evaluates a binary permission where RECONCILE is the default and any policy can grant EXEMPT. Multiple domains can contribute policies. First-EXEMPT-wins is the natural model for permission grants — analogous to RBAC where any granted role suffices. DriftPolicy beans MUST declare `@Priority` — the engine evaluates in priority order (highest first), and the first EXEMPT terminates evaluation. This is required because CDI `Instance<T>.stream()` ordering is not guaranteed by the CDI specification; without `@Priority`, first-EXEMPT-wins produces non-deterministic results. This follows CDI conventions and the platform's established priority-based ordering patterns.
+**Trade-offs:** Multiple policies evaluating per node per cycle has a performance cost, but this is bounded by the number of DriftPolicy beans (typically 1-3 per deployment) and is negligible compared to actual state reads and provisioning. First-EXEMPT-wins means a single policy can override the default for any node — cross-domain integrity depends on drift exemption not violating provides/requires contracts (it doesn't — a DRIFTED node is still PRESENT from a dependency perspective). Requiring `@Priority` adds a declaration burden but makes the evaluation contract explicit — a deployment where two policies can EXEMPT the same node has deterministic, predictable behaviour.
+**Sources:** FaultPolicyEngine.java (chain evaluation pattern), CrossDomainCompositionEngine (multi-domain SPI contribution), RuntimeBeans.java:37-41 (CDI Instance wiring pattern)
 **Exploration:** quick
-**Status:** revised — R1-05 correctly identified that the original wording ("mirrors") was misleading; clarified that the structural pattern mirrors but composition semantics intentionally differ
+**Status:** revised — R1-05 clarified composition semantics divergence; R2-02 correctly identified that first-EXEMPT-wins requires deterministic ordering via @Priority
 
 ## D4: Observability — new event type for permitted drift
 
