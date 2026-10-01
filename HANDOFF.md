@@ -1,12 +1,12 @@
-# Handoff — casehub-desiredstate
+# HANDOFF — casehub-desiredstate
 
 ## Last Session
 
-Implemented #157 — idempotent provisioning via `ProvisionResult.AlreadyConverged` and `StepOutcome.AlreadyConverged` sealed variants. Distinct `NODE_ALREADY_CONVERGED` CloudEvent enables consumers to distinguish real mutations from idempotent no-ops. Updated both teaching examples (dungeon, pipeline) with check-before-dispatch pattern. All exhaustive switch sites across engine-adapter, plugin-testing, and CbrProposalTracker updated.
+Completed Batch 3 (surface integration) for #130/#159: ordering constraints now available across all three declaration surfaces — YAML, annotations, and TypeScript DSL. Three commits landed: YAML surface (YamlOrderingConstraint, YamlGraph field, YamlGoalCompilerFactory resolution + all constructor call-site updates), annotation surface (@OrderBefore on @DesiredState, OrderingConstraintDescriptor, DescriptorScanner @NodeTypeId extraction, GoalCompilerFactory constraint application), TS DSL surface (TsOrderingConstraint, TsEnvelope/TsLifecycleEnvelope fields, TsGoalCompilerFactory resolution, TsDslDiscovery pass-through, TypeScript SDK OrderingConstraintDef type + defineGraph/defineLifecycle pass-through). 419 runtime tests + 122 yaml + 6 ts-dsl + annotation tests all pass. TS SDK vitest 11/11 pass.
 
-## Branch State
+## Immediate Next Step
 
-On `main`. No active branch. #157 closed, landed as `a7d7983`.
+All tasks in the plan are complete. Branch is ready for work-end: code review, squash, and merge.
 
 ## Cross-Module
 
@@ -17,6 +17,8 @@ Pre-existing `yaml/runtime` test failure (DesiredStateModuleBridgeTest — missi
 
 | Artifact | Location |
 |----------|----------|
-| #157 diary | `blog/2026-09-30-mdp01-idempotent-provisioning.md` |
-| Consumer guide | `docs/guides/consumer-guide.md` (updated with AlreadyConverged) |
-| Suggested next | #158 — partial convergence reporting (direct follow-on) |
+| Design spec | `specs/issue-130-plan-preview-approval-gate/2026-10-01-plan-preview-and-edge-handling-design.md` |
+| Decisions | `specs/issue-130-plan-preview-approval-gate/decisions.md` |
+| Implementation plan | `plans/2026-10-01-plan-preview-and-edge-handling.md` |
+| Decision review | `reviews/casehub-desiredstate/issue-130-decision-20261001-153802/` |
+| Design journal | `JOURNAL.md` |
