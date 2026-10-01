@@ -13,5 +13,6 @@ flyway-next-v: none
 evidence-era: true
 
 ## Queue
+- [ ] casehubio/casehub-desiredstate#160 — drift-policy-layer ← active
+- [ ] casehubio/casehub-desiredstate#143 — cross-domain-fault-policy-scoping
 - [x] casehubio/casehub-desiredstate#155 — Issue #155
-- [ ] casehubio/casehub-desiredstate#143 — cross-domain-fault-policy-scoping ← active
