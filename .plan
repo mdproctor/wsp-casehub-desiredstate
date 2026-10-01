@@ -1,0 +1,17 @@
+# Work Plan — issue-155-spring-generators
+
+## State
+branch: issue-155-spring-generators
+state: active
+project-sha: 
+date: 
+issue-repo: casehubio/casehub-desiredstate
+covers: 155,143
+design-repo: 
+design-section-hashes: 
+flyway-next-v: none
+evidence-era: true
+
+## Queue
+- [x] casehubio/casehub-desiredstate#155 — Issue #155
+- [ ] casehubio/casehub-desiredstate#143 — cross-domain-fault-policy-scoping ← active
