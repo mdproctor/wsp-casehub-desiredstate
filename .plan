@@ -2,7 +2,7 @@
 
 ## State
 branch: issue-160-drift-policy-layer
-state: closing:merged
+state: closing:stamped
 project-sha: 
 date: 
 issue-repo: casehubio/casehub-desiredstate
