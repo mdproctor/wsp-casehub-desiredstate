@@ -2,11 +2,11 @@
 
 ## Last Session
 
-Designed and implemented both #130 (plan preview/approval gate) and #159 (ordering constraints/flat-graph fast-path) at the runtime level. PlanApprovalGate injects between plan() and execute() in ReconciliationLoop with skip-and-recheck semantics. OrderingConstraint lives on DesiredStateGraph; TransitionPlanner resolves them as virtual in-degree entries during BFS. Decision review (3 rounds) surfaced D9: plan-level and per-node approval coexist as independent concerns. 419 runtime tests pass.
+Completed Batch 3 (surface integration) for #130/#159: ordering constraints now available across all three declaration surfaces — YAML, annotations, and TypeScript DSL. Three commits landed: YAML surface (YamlOrderingConstraint, YamlGraph field, YamlGoalCompilerFactory resolution + all constructor call-site updates), annotation surface (@OrderBefore on @DesiredState, OrderingConstraintDescriptor, DescriptorScanner @NodeTypeId extraction, GoalCompilerFactory constraint application), TS DSL surface (TsOrderingConstraint, TsEnvelope/TsLifecycleEnvelope fields, TsGoalCompilerFactory resolution, TsDslDiscovery pass-through, TypeScript SDK OrderingConstraintDef type + defineGraph/defineLifecycle pass-through). 419 runtime tests + 122 yaml + 6 ts-dsl + annotation tests all pass. TS SDK vitest 11/11 pass.
 
 ## Immediate Next Step
 
-Batch 3: surface integration — add ordering constraint declarations to YAML (YamlGraph + YamlGoalCompilerFactory), annotations (@OrderBefore + DescriptorScanner + GoalCompilerFactory), and TS DSL (TsEnvelope + TsGoalCompilerFactory). Plan at `plans/2026-10-01-plan-preview-and-edge-handling.md`, Tasks 5-7.
+All tasks in the plan are complete. Branch is ready for work-end: code review, squash, and merge.
 
 ## Cross-Module
 
