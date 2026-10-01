@@ -13,3 +13,13 @@ flyway-next-v:
 
 ## Queue
 - [ ] casehubio/casehub-desiredstate#130 — Issue #130 ← active
+  - [x] Batch 1: Ordering Constraints
+    - [x] Task 1: OrderingConstraint + DesiredStateGraph + ImmutableDesiredStateGraph
+    - [x] Task 2: TransitionPlanner fast-path + virtual edges
+  - [x] Batch 2: Plan Approval Gate
+    - [x] Task 3: API types + SPIs
+    - [x] Task 4: PlanApprovalGate + ReconciliationLoop + CDI/Spring wiring
+  - [ ] Batch 3: Surface Integration
+    - [ ] Task 5: YAML ordering constraints
+    - [ ] Task 6: Annotation ordering constraints
+    - [ ] Task 7: TS DSL ordering constraints
