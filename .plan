@@ -2,7 +2,7 @@
 
 ## State
 branch: issue-155-spring-generators
-state: closing:review
+state: closing:verified
 project-sha: 
 date: 
 issue-repo: casehubio/casehub-desiredstate
@@ -10,18 +10,8 @@ covers: 155,143
 design-repo: 
 design-section-hashes: 
 flyway-next-v: none
-
 evidence-era: true
+
 ## Queue
-- [ ] casehubio/casehub-desiredstate#155 — Issue #155 ← active
-  - [x] Batch 1: Foundation
-    - [x] Task 1: BeanRegistration record
-    - [x] Task 2: SpringJandexSupport utility
-  - [x] Batch 2: Discovery
-    - [x] Task 3: AnnotationsDiscovery
-    - [x] Task 4: PluginDiscovery
-    - [x] Task 5: YamlDiscovery
-    - [x] Task 6: TsDslDiscovery
-  - [x] Batch 3: Docs
-    - [x] Task 7: Update docs and file generation issue
-- [ ] casehubio/casehub-desiredstate#143 — cross-domain-fault-policy-scoping
+- [x] casehubio/casehub-desiredstate#155 — Issue #155
+- [ ] casehubio/casehub-desiredstate#143 — cross-domain-fault-policy-scoping ← active
