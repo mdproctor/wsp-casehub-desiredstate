@@ -1,0 +1,15 @@
+# Work Plan — issue-160-drift-policy-layer
+
+## State
+branch: issue-160-drift-policy-layer
+state: scaffolded
+project-sha: 
+date: 
+issue-repo: casehubio/casehub-desiredstate
+covers: 160
+design-repo: 
+design-section-hashes: 
+flyway-next-v: 
+
+## Queue
+- [ ] casehubio/casehub-desiredstate#160 — Issue #160 ← active
