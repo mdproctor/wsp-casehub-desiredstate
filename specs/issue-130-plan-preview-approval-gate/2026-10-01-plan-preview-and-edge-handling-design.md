@@ -262,9 +262,8 @@ switch (decision) {
         // Emit PLAN_AWAITING_APPROVAL CloudEvent
         return;
     }
-    case GateDecision.Rejected(var ref, var reason) -> {
-        // Should not happen for evaluateNewPlan — policy returns AutoApprove or RequireApproval
-    }
+    // GateDecision.Rejected cannot occur from evaluateNewPlan —
+    // policy returns AutoApprove or RequireApproval only
 }
 ```
 
@@ -351,8 +350,12 @@ if (desired.dependencies().isEmpty() && desired.orderingConstraints().isEmpty())
     List<OrderedStep> addSteps = toAdd.stream()
         .map(id -> new OrderedStep(desired.nodes().get(id), StepAction.PROVISION)).toList();
     // ... same for suspend, resume
-    return new TransitionPlan(List.of(removals), wrapLayer(suspendSteps),
-                              wrapLayer(resumeSteps), wrapLayer(addSteps), before, desired);
+    return new TransitionPlan(
+        List.of(removals),
+        suspendSteps.isEmpty() ? List.of() : List.of(suspendSteps),
+        resumeSteps.isEmpty() ? List.of() : List.of(resumeSteps),
+        addSteps.isEmpty() ? List.of() : List.of(addSteps),
+        before, desired);
 }
 ```
 
