@@ -1,16 +1,18 @@
-# Work Plan — issue-163-situation-dispatch-hardening
+# Work Plan — issue-164-runtime-hardening-batch
 
 ## State
-branch: issue-163-situation-dispatch-hardening
-state: closing:stamped
+branch: issue-164-runtime-hardening-batch
+state: active
 project-sha: 
 date: 2026-10-02
 issue-repo: casehubio/casehub-desiredstate
-covers: 163
+covers: 164,165,166,167
 design-repo: 
 design-section-hashes: 
 flyway-next-v: 
 
-evidence-era: true
 ## Queue
-- [x] casehubio/casehub-desiredstate#163 — fix: harden SituationRecompilerDispatch
+- [ ] casehubio/casehub-desiredstate#164 — NodeStepExecutor — all step actions, human gating, approval lifecycle ← active
+- [ ] casehubio/casehub-desiredstate#165 — ReconciliationEventEmitter — missing emitter methods + test coverage
+- [ ] casehubio/casehub-desiredstate#166 — Listener and lifecycle glue — ExemptionEvictionListener, CdiTransitionActionHandler, StatefulNodeProvisioner gaps
+- [ ] casehubio/casehub-desiredstate#167 — Spring parity — missing fallback beans, LifecycleManager, validation, integration tests
