@@ -1,0 +1,15 @@
+# Work Plan — issue-163-situation-dispatch-hardening
+
+## State
+branch: issue-163-situation-dispatch-hardening
+state: active
+project-sha: 
+date: 2026-10-02
+issue-repo: casehubio/casehub-desiredstate
+covers: 163
+design-repo: 
+design-section-hashes: 
+flyway-next-v: 
+
+## Queue
+- [ ] casehubio/casehub-desiredstate#163 — fix: harden SituationRecompilerDispatch ← active
