@@ -1,0 +1,15 @@
+# Work Plan — issue-145-situation-dispatch-layer
+
+## State
+branch: issue-145-situation-dispatch-layer
+state: scaffolded
+project-sha: 
+date: 
+issue-repo: casehubio/casehub-desiredstate
+covers: 145
+design-repo: 
+design-section-hashes: 
+flyway-next-v: 
+
+## Queue
+- [ ] casehubio/casehub-desiredstate#145 — Issue #145 ← active
