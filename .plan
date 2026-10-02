@@ -2,7 +2,7 @@
 
 ## State
 branch: issue-163-situation-dispatch-hardening
-state: active
+state: closing:review
 project-sha: 
 date: 2026-10-02
 issue-repo: casehubio/casehub-desiredstate
@@ -11,5 +11,6 @@ design-repo:
 design-section-hashes: 
 flyway-next-v: 
 
+evidence-era: true
 ## Queue
-- [ ] casehubio/casehub-desiredstate#163 — fix: harden SituationRecompilerDispatch ← active
+- [x] casehubio/casehub-desiredstate#163 — fix: harden SituationRecompilerDispatch
