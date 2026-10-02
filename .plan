@@ -2,7 +2,7 @@
 
 ## State
 branch: issue-163-situation-dispatch-hardening
-state: closing:promoted
+state: closing:pushed
 project-sha: 
 date: 2026-10-02
 issue-repo: casehubio/casehub-desiredstate
