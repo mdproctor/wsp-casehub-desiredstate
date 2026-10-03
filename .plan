@@ -2,7 +2,7 @@
 
 ## State
 branch: issue-164-runtime-hardening-batch
-state: closing:verified
+state: closing:promoted
 project-sha: 
 date: 2026-10-02
 issue-repo: casehubio/casehub-desiredstate
