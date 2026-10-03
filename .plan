@@ -1,0 +1,15 @@
+# Work Plan — issue-159-flat-graph-ordering-constraints
+
+## State
+branch: issue-159-flat-graph-ordering-constraints
+state: scaffolded
+project-sha: 
+date: 
+issue-repo: casehubio/casehub-desiredstate
+covers: 159
+design-repo: 
+design-section-hashes: 
+flyway-next-v: 
+
+## Queue
+- [ ] casehubio/casehub-desiredstate#159 — Issue #159 ← active
