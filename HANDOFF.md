@@ -2,32 +2,19 @@
 
 ## Last Session
 
-Completed #130 (plan preview/approval gate) and #159 (ordering constraints) — full work-end including code review, 4-dimension branch audit, squash (12→7 commits), merge to main, push. All tests green (419 runtime, 122 YAML, annotation, TS DSL, TS SDK).
+Completed #164 (NodeStepExecutor — 45 tests), #165 (ReconciliationEventEmitter — 3 missing methods + 18 tests), #166 (listener/lifecycle glue — 17 tests across ExemptionEvictionListener, StatefulNodeProvisioner, CdiTransitionActionHandler, DesiredStateSituationDefinitionProvider, DesiredStateReplanDispatch composition branch). All runtime hardening — test coverage for structurally complete but unproven code.
 
-## Branch State
+## Immediate Next Step
 
-On `main`. No active branch. #130 and #159 closed, landed as `1e4aba9`.
+#167 — Spring parity. 8 missing `@ConditionalOnMissingBean` fallbacks, missing `LifecycleManager` and `SituationRecompilerDispatch` Spring equivalents, `NodeProvisionerRouter` Spring version lacks `PreferenceProvider`, Spring discovery modules skip build-time validation, `SpringBootCompositionTest` only verifies context loads. Different test surface — Spring Boot auto-config test infrastructure.
 
 ## Cross-Module
 
-Pre-existing `work-adapter` test failure (WorkItemRef constructor mismatch) — unrelated.
-Pre-existing `yaml/runtime` test failure (DesiredStateModuleBridgeTest — missing ParameterType class) — unrelated.
-
-## Suggested Next
-
-#161 — generate Spring auto-config glue from discovery classes. S/Med. Platform-level tooling in `spring-generator` (parent repo). Discovery classes already exist: `AnnotationsDiscovery`, `YamlDiscovery`, `TsDslDiscovery`, `PluginDiscovery`.
-
-## Follow-up Items
-
-- GraphSerializer doesn't persist ordering constraints through JPA round-trips (non-blocking — planner reads from current graph, not stored)
-- Build-time validation of ordering constraint type names in YAML/TS deployment processors
-- Plugin surface doesn't support ordering constraints
-- ARC42STORIES §9 needs update for plan-level approval and ordering constraints
+Pre-existing `annotations/deployment` test failure (Quarkus bytecode recorder issue). Unrelated — fails on main too.
 
 ## References
 
 | Artifact | Location |
 |----------|----------|
-| Design spec | `docs/specs/issue-130-plan-preview-approval-gate/2026-10-01-plan-preview-and-edge-handling-design.md` |
-| Decisions | `docs/specs/issue-130-plan-preview-approval-gate/decisions.md` |
-| Diary | `docs/blog/2026-10-01-mdp01-ordering-constraints-land.md` |
+| Diary | `docs/blog/2026-10-02-mdp01-hardening-the-dispatch-layer.md` |
+| Journal | workspace `JOURNAL.md` |
