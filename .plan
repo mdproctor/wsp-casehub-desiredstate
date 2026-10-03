@@ -14,5 +14,5 @@ flyway-next-v:
 ## Queue
 - [x] casehubio/casehub-desiredstate#164 — NodeStepExecutor — all step actions, human gating, approval lifecycle
 - [x] casehubio/casehub-desiredstate#165 — ReconciliationEventEmitter — missing emitter methods + test coverage
-- [ ] casehubio/casehub-desiredstate#166 — Listener and lifecycle glue — ExemptionEvictionListener, CdiTransitionActionHandler, StatefulNodeProvisioner gaps ← active
-- [ ] casehubio/casehub-desiredstate#167 — Spring parity — missing fallback beans, LifecycleManager, validation, integration tests
+- [x] casehubio/casehub-desiredstate#166 — Listener and lifecycle glue — ExemptionEvictionListener, CdiTransitionActionHandler, StatefulNodeProvisioner gaps
+- [ ] casehubio/casehub-desiredstate#167 — Spring parity — missing fallback beans, LifecycleManager, validation, integration tests ← active
