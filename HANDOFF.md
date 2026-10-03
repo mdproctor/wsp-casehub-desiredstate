@@ -2,19 +2,22 @@
 
 ## Last Session
 
-Completed #164 (NodeStepExecutor — 45 tests), #165 (ReconciliationEventEmitter — 3 missing methods + 18 tests), #166 (listener/lifecycle glue — 17 tests across ExemptionEvictionListener, StatefulNodeProvisioner, CdiTransitionActionHandler, DesiredStateSituationDefinitionProvider, DesiredStateReplanDispatch composition branch). All runtime hardening — test coverage for structurally complete but unproven code.
+Closed batch #164–167 (runtime hardening): NodeStepExecutor tests, ReconciliationEventEmitter methods, listener/lifecycle glue tests, Spring parity with 8 fallback beans. Landed on main, all 4 issues closed, branch stamped.
+
+Started batch #168–169–161. Completed #168 (`@RecordableConstructor` on `GraphDescriptor` — fixes 12 test failures in `annotations/deployment`). Completed #169 (extracted `SituationRecompilerDispatchCore` to runtime-core, CDI delegates, new `SpringSituationRecompilerDispatch` with `@EventListener`). Both committed on `issue-168-spring-codegen-and-fixes`.
+
+#161 (Spring auto-config codegen from discovery classes) deferred — requires work in `casehubio/parent` repo's `spring-generator` module, not this repo.
 
 ## Immediate Next Step
 
-#167 — Spring parity. 8 missing `@ConditionalOnMissingBean` fallbacks, missing `LifecycleManager` and `SituationRecompilerDispatch` Spring equivalents, `NodeProvisionerRouter` Spring version lacks `PreferenceProvider`, Spring discovery modules skip build-time validation, `SpringBootCompositionTest` only verifies context loads. Different test surface — Spring Boot auto-config test infrastructure.
+Close branch `issue-168-spring-codegen-and-fixes` via `work end` — #168 and #169 are done. #161 needs a separate session against the parent repo.
 
 ## Cross-Module
 
-Pre-existing `annotations/deployment` test failure (Quarkus bytecode recorder issue). Unrelated — fails on main too.
+#161 is cross-repo: the `spring-generator` Maven plugin lives in `casehubio/parent`. The 4 Spring auto-configs in this repo follow an identical pattern (SpringJandexSupport → discovery class → BeanRegistration → registerBean) that the generator should codegen. Verified assumptions still hold (fork agent confirmed Oct 3).
 
 ## References
 
 | Artifact | Location |
 |----------|----------|
-| Diary | `docs/blog/2026-10-02-mdp01-hardening-the-dispatch-layer.md` |
-| Journal | workspace `JOURNAL.md` |
+| Diary | `blog/2026-10-03-mp01-runtime-hardening-spring-parity.md` |
