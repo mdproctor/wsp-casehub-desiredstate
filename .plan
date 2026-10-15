@@ -1,0 +1,16 @@
+# Work Plan — issue-171-nodetypeid-org-specs
+
+## State
+branch: issue-171-nodetypeid-org-specs
+state: closing:promoted
+project-sha: 
+date: 
+issue-repo: casehubio/casehub-desiredstate
+covers: 171
+design-repo: 
+design-section-hashes: 
+flyway-next-v: 
+
+evidence-era: true
+## Queue
+- [ ] casehubio/casehub-desiredstate#171 — Issue #171 ← active
