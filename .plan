@@ -1,16 +1,15 @@
-# Work Plan — issue-171-nodetypeid-org-specs
+# Work Plan — issue-172-graphdiff-public
 
 ## State
-branch: issue-171-nodetypeid-org-specs
-state: closing:stamped
+branch: issue-172-graphdiff-public
+state: scaffolded
 project-sha: 
 date: 
 issue-repo: casehubio/casehub-desiredstate
-covers: 171
+covers: 172
 design-repo: 
 design-section-hashes: 
 flyway-next-v: 
 
-evidence-era: true
 ## Queue
-- [ ] casehubio/casehub-desiredstate#171 — Issue #171 ← active
+- [ ] casehubio/casehub-desiredstate#172 — Issue #172 ← active
