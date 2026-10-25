@@ -1,0 +1,15 @@
+# Work Plan — issue-177-spec-field-runtime-validation
+
+## State
+branch: issue-177-spec-field-runtime-validation
+state: scaffolded
+project-sha: 
+date: 
+issue-repo: casehubio/casehub-desiredstate
+covers: 177
+design-repo: 
+design-section-hashes: 
+flyway-next-v: 
+
+## Queue
+- [ ] casehubio/casehub-desiredstate#177 — Issue #177 ← active
