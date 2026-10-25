@@ -61,3 +61,23 @@
 **Exploration:** quick
 **Depends on:** D1 (unified model — lifecycle must handle both static and dynamic channels), D4 (repository SPI provides watch capability)
 **Status:** captured
+
+## D6: Cleanup, alignment, and naming
+
+**Choice:** Desiredstate's unified registry is named `ExtensionRegistry` (not `PluginRegistry`) to avoid collision with platform's `PluginRegistry` (step primitives). Existing mechanisms are migrated into the unified model, not wrapped with parallel adapters:
+- `PluginHeader` → migrated to `PluginManifest` (type→provides.types[0], version int→semver)
+- `PluginDescriptor` → gains coordinate fields, populated from PluginManifest
+- `PluginDiscovery` → removed, replaced by `PluginCatalog` aggregating PluginRepository sources
+- `PluginRuntimeBeans` (Quarkus) → refactored to consume from PluginCatalog
+- `DesiredStatePluginAutoConfiguration` (Spring) → refactored to consume from PluginCatalog
+- `YamlPluginProcessor` (Quarkus build-time) → validates classpath plugins, produces PluginManifest-shaped metadata; duplicate detection moves to catalog
+- Platform `PluginRegistry` (yaml-plugin-api) → unchanged, different layer
+**Alternatives:**
+- Rename platform's to `StepPrimitiveRegistry` — more accurate but larger blast radius (platform repo, many consumers)
+- Keep both as `PluginRegistry` in different packages — technically works but creates confusion in imports and documentation
+**Rationale:** `ExtensionRegistry` accurately describes the broader scope (Java SPIs, annotations, YAML graphs, YAML plugins, TS DSL — not just "plugins"). Rename is contained to desiredstate. Platform's `PluginRegistry` keeps its name and all its consumers stay untouched. Migration (not wrapping) ensures no remnant code drifts.
+**Trade-offs:** Breaking changes to PluginHeader YAML format require graceful migration. PluginDiscovery removal touches PluginRuntimeBeans and Spring auto-config.
+**Sources:** Platform PluginRegistry (yaml-plugin-api), existing PluginDiscovery, PluginRuntimeBeans, DesiredStatePluginAutoConfiguration
+**Exploration:** quick
+**Depends on:** D1 (unified model mandates cleanup), D3 (manifest structure defines migration target)
+**Status:** captured
