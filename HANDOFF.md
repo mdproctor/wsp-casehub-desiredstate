@@ -2,11 +2,14 @@
 
 ## Last Session
 
-Closed #178 (suspend/resume lifecycle for YAML plugins) — S/Low, landed on main as `f03b618`. Extended PluginProvisionerDef, PluginParser, PluginDescriptor, YamlPluginProvisioner, and PluginValidator with suspend/resume step lists. `supportsStatefulLifecycle()` returns true when any plugin defines suspend or resume steps. Full test coverage: 6 new tests.
+Closed #178 (suspend/resume lifecycle for YAML plugins) and #179 (monitoring-endpoint YAML plugin example).
+
+- **#178** — S/Low, landed as `f03b618`. Extended plugin model, parser, provisioner, descriptor, and validator with suspend/resume step lists.
+- **#179** — S/Low, landed as `2dd71b8`. New `examples/plugin-yaml/` module with monitoring-endpoint plugin demonstrating all YAML plugin capabilities: spec schema, provision/deprovision/suspend/resume, actual-state, fault policy, CBR, RAS. 11 integration tests.
 
 ## Immediate Next Step
 
-Remaining items from epic #173: #179 (example project) and #180 (catalog/versioning). All other sub-issues (#174–#178) are closed.
+Only #180 (plugin catalog and versioning) remains from epic #173. M/Med, design-heavy — needs brainstorming before implementation.
 
 ## Cross-Module
 
@@ -17,4 +20,5 @@ Remaining items from epic #173: #179 (example project) and #180 (catalog/version
 | Artifact | Location |
 |----------|----------|
 | Epic | casehubio/casehub-desiredstate#173 |
-| Commit | f03b618 |
+| #178 commit | f03b618 |
+| #179 commit | 2dd71b8 |
