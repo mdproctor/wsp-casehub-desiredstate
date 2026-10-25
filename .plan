@@ -2,7 +2,7 @@
 
 ## State
 branch: issue-178-suspend-resume-yaml-plugins
-state: closing:review
+state: closing:verified
 project-sha: 
 date: 
 issue-repo: casehubio/casehub-desiredstate
@@ -10,7 +10,7 @@ covers: 178
 design-repo: 
 design-section-hashes: 
 flyway-next-v: 
-
 evidence-era: true
+
 ## Queue
-- [ ] casehubio/casehub-desiredstate#178 — Issue #178 ← active
+- [x] casehubio/casehub-desiredstate#178 — Issue #178
