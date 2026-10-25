@@ -1,0 +1,15 @@
+# Work Plan — issue-178-suspend-resume-yaml-plugins
+
+## State
+branch: issue-178-suspend-resume-yaml-plugins
+state: scaffolded
+project-sha: 
+date: 
+issue-repo: casehubio/casehub-desiredstate
+covers: 178
+design-repo: 
+design-section-hashes: 
+flyway-next-v: 
+
+## Queue
+- [ ] casehubio/casehub-desiredstate#178 — Issue #178 ← active
