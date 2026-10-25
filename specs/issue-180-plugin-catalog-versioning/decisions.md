@@ -48,3 +48,16 @@
 **Exploration:** quick
 **Depends on:** D2 (coordinates define the directory structure)
 **Status:** captured
+
+## D5: Dynamic plugin lifecycle
+
+**Choice:** Watch + validate + activate cycle. FilesystemPluginRepository watches directories for changes. On change: (1) parse & validate manifest, check required primitives and type conflicts; (2) register in PluginRegistry, wire NodeProvisioner, ActualStateAdapter, fault policies, CBR, RAS; (3) fire CDI/Spring events (PluginActivatedEvent, PluginDeactivatedEvent). Updates deactivate old then activate new. Deactivation guard: a plugin cannot be deactivated if any active tenancy has nodes of its type in a non-terminal state (wait or require explicit force).
+**Alternatives:**
+- Restart-on-change — watch for changes but restart the application; simpler but defeats the "no restart for YAML plugins" promise
+- Poll-based with explicit reload command — more controlled but less dynamic; could complement file watching as an additional trigger
+**Rationale:** Delivers on the dynamic/no-restart requirement. Watch + validate + activate is the standard pattern (Kubernetes controllers, OSGi bundles). Deactivation guard prevents yanking provisioners from under running reconciliation. CDI/Spring events let the reconciliation loop and other consumers react to plugin changes.
+**Trade-offs:** More complex than restart-on-change; deactivation guard adds lifecycle state tracking; file watching has platform-specific edge cases (NFS, container mounts)
+**Sources:** Existing ReconciliationLoop event model, StatefulNodeProvisioner lifecycle, DesiredStateEventTypes CloudEvent patterns
+**Exploration:** quick
+**Depends on:** D1 (unified model — lifecycle must handle both static and dynamic channels), D4 (repository SPI provides watch capability)
+**Status:** captured
