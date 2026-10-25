@@ -1,0 +1,15 @@
+# Work Plan — issue-180-plugin-catalog-versioning
+
+## State
+branch: issue-180-plugin-catalog-versioning
+state: scaffolded
+project-sha: 
+date: 
+issue-repo: casehubio/casehub-desiredstate
+covers: 180
+design-repo: 
+design-section-hashes: 
+flyway-next-v: 
+
+## Queue
+- [ ] casehubio/casehub-desiredstate#180 — Issue #180 ← active
