@@ -22,3 +22,16 @@
 **Exploration:** quick
 **Depends on:** D1 (unified model — identity must work across all extension types)
 **Status:** captured
+
+## D3: PluginManifest structure
+
+**Choice:** Extend existing `plugin:` header in YAML plugins with identity (group, name, version), metadata (description, category), capabilities provided (types), and capabilities required (runtime version, step primitives, other node types). Existing fields (resyncInterval, auth) stay. For classpath extensions, manifest is inferred from Jandex/annotations or declared in a companion manifest file.
+**Alternatives:**
+- Separate manifest file alongside plugin YAML — keeps plugin YAML clean but splits metadata across files
+- Minimal manifest (identity only, no provides/requires) — simpler but loses safety guardrails and self-documentation
+**Rationale:** Inline manifest keeps each plugin self-contained (one file = one plugin). `provides.types` is derivable for single-type plugins but explicit declaration enables multi-type plugins in the future and makes dependency graphs inspectable. `requires` enables validation at load time — fail fast if a required primitive or type is missing.
+**Trade-offs:** Existing `PluginHeader` needs migration — `type` becomes `name`, `version` becomes semver string. Breaking change to the plugin YAML format that must be handled gracefully.
+**Sources:** Existing `PluginHeader(type, version, resyncInterval, auth)`, `PluginDescriptor`, monitoring-endpoint.yaml example
+**Exploration:** quick
+**Depends on:** D2 (identity model defines the coordinate fields in the manifest)
+**Status:** captured
