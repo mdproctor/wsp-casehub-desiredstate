@@ -35,3 +35,16 @@
 **Exploration:** quick
 **Depends on:** D2 (identity model defines the coordinate fields in the manifest)
 **Status:** captured
+
+## D4: Repository model and filesystem layout
+
+**Choice:** Maven-style directory layout for filesystem repositories — `plugins/<group-as-path>/<name>/<version>/plugin.yaml`. PluginRepository SPI abstracts over transport: `discover() → List<PluginManifest>`, `fetch(coordinates) → PluginModel`, `watch() → change events`. Filesystem implementation is first; git and HTTP implementations follow later via the same SPI.
+**Alternatives:**
+- Category-based layout (`plugins/<category>/<name>/<version>/`) — more browsable but loses namespace collision prevention; two third parties could collide on `monitoring/endpoint`
+- Flat with manifest index (`plugins/catalog.yaml` + flat files) — simplest but doesn't scale, no structural collision prevention
+**Rationale:** Group-as-path mirrors Maven local repository conventions, prevents collisions structurally, and the directory tree is itself a browsable catalog. The SPI returns PluginManifest objects regardless of internal layout, so git/HTTP repositories can use whatever structure suits their transport.
+**Trade-offs:** Deeper directory nesting than category-based; operators must know the group to navigate the tree (but discovery/search tools can flatten this)
+**Sources:** Maven local repository layout, existing `META-INF/desiredstate/plugins/` classpath convention, platform module-tier-structure
+**Exploration:** quick
+**Depends on:** D2 (coordinates define the directory structure)
+**Status:** captured
