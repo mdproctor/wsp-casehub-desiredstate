@@ -36,17 +36,24 @@
 **Depends on:** D2 (identity model defines the coordinate fields in the manifest)
 **Status:** captured
 
-## D4: Repository model and filesystem layout
+## D4: Repository model, filesystem layout, and plugin packaging
 
-**Choice:** Maven-style directory layout for filesystem repositories — `plugins/<group-as-path>/<name>/<version>/plugin.yaml`. PluginRepository SPI abstracts over transport: `discover() → List<PluginManifest>`, `fetch(coordinates) → PluginModel`, `watch() → change events`. Filesystem implementation is first; git and HTTP implementations follow later via the same SPI.
+**Choice:** Maven-style directory layout for filesystem repositories. Each plugin is a **directory** (not a single file) at its coordinates: `plugins/<group-as-path>/<name>/<version>/`. The directory contains:
+- `plugin.yaml` — node type definition (mandatory)
+- `primitives/` — optional YAML-defined step primitives (loaded via platform's `YamlDefinitionSource` pattern)
+- `scripts/` — optional script-backed primitives (loaded via platform's `ScriptSource` pattern)
+
+PluginRepository SPI abstracts over transport: `discover() → List<PluginManifest>`, `fetch(coordinates) → PluginPackage`, `watch() → change events`. Filesystem implementation is first; git and HTTP implementations follow later via the same SPI.
+
+Activation order: bundled primitives are registered into platform's `PluginRegistry` (step primitives) first, then the node type is activated in `ExtensionRegistry`. This means a plugin can satisfy its own `requires.primitives` from its bundled content.
 **Alternatives:**
 - Category-based layout (`plugins/<category>/<name>/<version>/`) — more browsable but loses namespace collision prevention; two third parties could collide on `monitoring/endpoint`
-- Flat with manifest index (`plugins/catalog.yaml` + flat files) — simplest but doesn't scale, no structural collision prevention
-**Rationale:** Group-as-path mirrors Maven local repository conventions, prevents collisions structurally, and the directory tree is itself a browsable catalog. The SPI returns PluginManifest objects regardless of internal layout, so git/HTTP repositories can use whatever structure suits their transport.
-**Trade-offs:** Deeper directory nesting than category-based; operators must know the group to navigate the tree (but discovery/search tools can flatten this)
-**Sources:** Maven local repository layout, existing `META-INF/desiredstate/plugins/` classpath convention, platform module-tier-structure
+- Single-file model (plugin.yaml only, no bundled primitives) — simpler but forces third parties to contribute primitives separately to the platform, fragmenting the distribution
+**Rationale:** Bundled-directory model ties the two extension layers together cleanly — platform `PluginRegistry` (vocabulary) and desiredstate `ExtensionRegistry` (compositions) are both extendable from one package. Group-as-path mirrors Maven conventions and prevents collisions structurally. The platform already has `YamlDefinitionSource` and `ScriptSource` patterns for non-classpath primitives — bundled primitives reuse these mechanisms.
+**Trade-offs:** Deeper directory nesting; more complex loading sequence (primitives first, then plugin). Plugin packages are directories, not single files, which is slightly less portable (but archives/tarballs can wrap them for transport).
+**Sources:** Maven local repository layout, platform `YamlDefinitionSource`, platform `ScriptSource`, existing `META-INF/desiredstate/plugins/` classpath convention
 **Exploration:** quick
-**Depends on:** D2 (coordinates define the directory structure)
+**Depends on:** D2 (coordinates define the directory structure), D1 (unified model spans both plugin layers)
 **Status:** captured
 
 ## D5: Dynamic plugin lifecycle
@@ -80,4 +87,29 @@
 **Sources:** Platform PluginRegistry (yaml-plugin-api), existing PluginDiscovery, PluginRuntimeBeans, DesiredStatePluginAutoConfiguration
 **Exploration:** quick
 **Depends on:** D1 (unified model mandates cleanup), D3 (manifest structure defines migration target)
+**Status:** captured
+
+## D7: Conflict detection and dependency resolution
+
+**Choice:** Strict fail-fast validation. The `PluginCatalog` validates the full dependency graph at load time:
+
+Conflicts detected:
+- Type collision — two plugins providing the same NodeType → fatal, second plugin rejected
+- Coordinate collision — same group:name:version from different repositories → first repository wins (priority ordering in catalog config)
+- Version conflict — same group:name with different versions loaded → only one version active per plugin
+- Primitive collision — bundled primitive name clashes with an existing platform primitive → fatal
+
+Dependencies resolved (topological order, fail-fast):
+- Required primitives — checked against platform `PluginRegistry` after bundled primitives are registered. Missing → load fails with clear error
+- Required types — checked against `ExtensionRegistry`. Missing → load fails. Circular dependencies detected and rejected
+- Runtime version — compared against running desiredstate runtime version. Incompatible → load fails
+
+Loading order: plugins sorted topologically by type dependencies. Plugins with no type dependencies load first; plugins that depend on types from other plugins load after their dependencies.
+**Alternatives:**
+- Lenient mode (warn and load anyway) — defers errors to runtime when provisioner fails mid-reconciliation. Strictly worse — fail-fast at load time gives a clear error message vs. an obscure runtime failure
+**Rationale:** The whole point of the manifest's `requires` section is to fail fast. A plugin that declares a dependency and loads without it will fail at reconciliation time with a confusing error. Better to reject at load time with "plugin X requires primitive Y which is not available."
+**Trade-offs:** Strict validation means an operator can't partially deploy (e.g., load a plugin before its dependency is available). They must deploy dependencies first or deploy the whole bundle atomically.
+**Sources:** Existing `PluginValidator.validatePlugin()` (already does primitive validation at build time), `PluginValidationException`, `YamlPluginProcessor` duplicate detection
+**Exploration:** quick
+**Depends on:** D3 (manifest requires section defines what to validate), D4 (bundled primitives affect validation order), D6 (ExtensionRegistry is the unified validation target)
 **Status:** captured
