@@ -113,3 +113,19 @@ Loading order: plugins sorted topologically by type dependencies. Plugins with n
 **Exploration:** quick
 **Depends on:** D3 (manifest requires section defines what to validate), D4 (bundled primitives affect validation order), D6 (ExtensionRegistry is the unified validation target)
 **Status:** captured
+
+## D8: Module placement — desiredstate owns, ops implements
+
+**Choice:** The plugin catalog infrastructure lives in desiredstate, not platform. The dependency chain is: ops → desiredstate → platform.
+- **platform** — owns step primitives (`PluginRegistry`, `Definition`, `Action`). The vocabulary layer. Unchanged.
+- **desiredstate** — owns the plugin catalog infrastructure: `PluginManifest`, `PluginRepository` SPI, `PluginCatalog`, `ExtensionRegistry`, dynamic lifecycle, conflict detection, dependency resolution. Lives in the existing `plugin/` module structure (api, runtime, deployment, spring). The catalog module extends this structure.
+- **ops** — implements plugins using desiredstate's infrastructure. Today: Java SPI implementations (container provisioners, topology management). Future: YAML plugins loaded from the catalog for infrastructure resource types.
+**Alternatives:**
+- Catalog in platform — domain-agnostic placement, but the plugin model (provisioner, actual-state, fault policy, CBR, RAS) is inherently tied to desiredstate's domain types. Putting it in platform would either leak desiredstate concepts into platform or require an abstraction layer that adds complexity without value.
+- Catalog in ops — wrong dependency direction; other repos that use desiredstate plugins would need to depend on ops.
+**Rationale:** The YAML plugin concept IS a desiredstate concept — it defines node types with lifecycle management. The catalog manages these plugins. The existing `plugin/` module tiers (api, runtime, deployment, spring) already provide the right structure. Ops naturally depends on desiredstate and becomes a consumer/implementor of the catalog.
+**Trade-offs:** If a future non-desiredstate repo needs a catalog for a different kind of plugin, it would need its own catalog infrastructure (but that's the right thing — different domain, different plugin model).
+**Sources:** CLAUDE.md tier structure (desiredstate is Foundation-tier), boundary-rules.md (foundation repos stay domain-agnostic, but desiredstate's domain IS desired-state management), ops container lifecycle capability
+**Exploration:** quick
+**Depends on:** D1 (unified model scoped to desiredstate extensions), D6 (ExtensionRegistry naming scoped to desiredstate)
+**Status:** captured
