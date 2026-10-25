@@ -71,3 +71,5 @@ _exec_ok:checkout_main=yes
 _exec_ok:cleanup_stack=yes
 _exec_ok:report_scaffold=yes
 promote_plan_next=done
+_exec_ok:wip_commit=yes
+wip_commit=done
