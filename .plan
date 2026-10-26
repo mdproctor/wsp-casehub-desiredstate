@@ -1,0 +1,15 @@
+# Work Plan — issue-183-bridge-adapter-spi-design
+
+## State
+branch: issue-183-bridge-adapter-spi-design
+state: scaffolded
+project-sha: 
+date: 
+issue-repo: casehubio/casehub-desiredstate
+covers: 183
+design-repo: 
+design-section-hashes: 
+flyway-next-v: 
+
+## Queue
+- [ ] casehubio/casehub-desiredstate#183 — Issue #183 ← active
