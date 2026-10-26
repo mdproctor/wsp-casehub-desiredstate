@@ -13,3 +13,14 @@ flyway-next-v:
 
 ## Queue
 - [ ] casehubio/casehub-desiredstate#180 — Issue #180 ← active
+  - [x] Batch 1: PluginHeader Evolution
+    - [x] Task 1: Evolve PluginHeader semver+requires
+  - [x] Batch 2: Policy+Dynamic Infra
+    - [x] Task 2: Extract policy interfaces
+    - [x] Task 3: Dynamic routers and policy engines
+  - [x] Batch 3: StateStore+Registry
+    - [x] Task 4: allTenancyIds on ReconciliationStateStore
+    - [x] Task 5: Create ExtensionRegistry
+
+## Deferred
+- [ ] DesiredStatePluginManifest + PluginCatalog integration + dynamic lifecycle (L / High) [casehubio/casehub-desiredstate] — blocked on casehubio/platform#662 — generic catalog SPI + filesystem repository
