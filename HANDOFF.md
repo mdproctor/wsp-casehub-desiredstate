@@ -2,18 +2,28 @@
 
 ## Last Session
 
-Closed #180 (plugin catalog and versioning — foundation layer). Landed as `1eabf1d` on main.
+Closed #134 (rollback — revert to previous desired-state graph). Landed as `5725aff..4cd6880` on main (5 commits).
 
 **What shipped:**
-- **PluginHeader evolution** — version int→semver string with backward compat, description field, `PluginRequires` record for dependency declaration (runtime version range, required primitives, required types)
-- **Policy interface extraction** — `FaultPolicyEvaluator` and `DriftPolicyEvaluator` interfaces in api/, ReconciliationLoop/Builder/CDI/Spring migrated from concrete classes to interfaces
-- **Dynamic infrastructure** — `DynamicNodeProvisionerRouter`, `DynamicActualStateAdapterRouter`, `DynamicFaultPolicyEngine`, `DynamicDriftPolicyEngine` with ConcurrentHashMap/CopyOnWriteArrayList backing, atomic register with collision rollback
-- **ReconciliationStateStore.allTenancyIds()** — SPI + InMemory, JPA, Spring JPA implementations
-- **ExtensionRegistry** — combined query surface for static (classpath) and dynamic (catalog) types
-- **Code review** fixed partial-registration bug on multi-type collision, added 4 missing test files
+- **DesiredStateHistoryStore SPI** — append-only version log per tenant with `record()`, `load()`, `listVersions()`, `prune()`, `remove()`. InMemoryDesiredStateHistoryStore in api/, DefaultDesiredStateHistoryStore in runtime-core/
+- **ReconciliationLoop.rollback(tenancyId, version, initiatedBy)** — loads historical graph, cancels pending approval and active lifecycle, emits ROLLBACK_INITIATED CloudEvent, swaps desired state. Rollback skips pruning (rollback-of-rollback recovery). `rollbackInProgress` volatile flag blocks concurrent reconcile()
+- **PlanContext sealed interface** — `Normal | Rollback(fromVersion, toVersion, reason, rollbackId)`. Breaking change to PlanApprovalPolicy.evaluate() — third parameter, no backward compat default
+- **LifecycleCanceller SPI** — breaks ReconciliationLoop→LifecycleManager circular dependency. LifecycleManager implements it
+- **History capture** — recorded at `updateDesired()` and `start()` only. Not at `compareAndSetDesired()` (lifecycle phase transitions) or `casRetryMutations()` (fault policy). HISTORY_MAX_DEPTH preference key (default 10)
+- **PlanApprovalGate.cancelPending(tenancyId)** — cancels stale pending plans during rollback
+- **JPA persistence** — DesiredStateHistoryEntity with composite PK, Flyway V3 migration, JpaDesiredStateHistoryStore (Quarkus), SpringJpaDesiredStateHistoryStore
+- **Spring parity** — DesiredStateRuntimeAutoConfiguration and DesiredStatePersistenceAutoConfiguration updated
+- **MockDesiredStateHistoryStore** in testing/ module
+- **Code review fix** — history store cleanup on tenant stop (TenantLoop.stop() calls historyStore.remove())
 
 **What's deferred:**
-- DesiredStatePluginManifest, DesiredStatePluginActivator, PluginCatalog integration, filesystem watcher, reload endpoint — all blocked on casehubio/platform#662 (generic catalog SPI + filesystem repository)
+- #187 — make history prune depth configurable via PreferenceProvider (hardcoded to 10, matches default)
+- Per-node rollback deferred by design — functionally `UpdateNode` with historical spec lookup, no new runtime capability needed
+- GraphSerializer doesn't serialize ordering constraints — pre-existing gap, not introduced by this work
+
+**Blog entries:**
+- Diary: workspace blog/2026-10-26-mdp01-rollback-desired-state.md
+- Article: project docs/blog/2026-10-26-mdp01-rollback-in-reconciliation-loops.md
 
 ## Cross-Module
 
@@ -23,10 +33,9 @@ Closed #180 (plugin catalog and versioning — foundation layer). Landed as `1ea
 
 | Artifact | Location |
 |----------|----------|
-| Epic | casehubio/casehub-desiredstate#173 |
-| #180 commit | 1eabf1d |
-| Design spec | specs/issue-180-plugin-catalog-versioning/2026-10-26-plugin-catalog-versioning-design.md |
-| Decisions | specs/issue-180-plugin-catalog-versioning/decisions.md (11 decisions, reviewed) |
-| Implementation plan | plans/2026-10-26-plugin-catalog-versioning.md |
-| Blog entry | blog/2026-10-26-mdp01-the-infrastructure-before-the-infrastructure.md |
-| Platform blocker | casehubio/platform#662 |
+| Issue | casehubio/casehub-desiredstate#134 |
+| Commits | 5725aff..4cd6880 on main |
+| Design spec | specs/issue-134-rollback-desired-state-graph/2026-10-26-rollback-design.md |
+| Decisions | specs/issue-134-rollback-desired-state-graph/decisions.md (12 decisions, reviewed) |
+| Implementation plan | plans/2026-10-26-rollback-desired-state-graph.md |
+| Follow-up | casehubio/casehub-desiredstate#187 (preference-driven prune depth) |
