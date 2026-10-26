@@ -114,18 +114,35 @@ Loading order: plugins sorted topologically by type dependencies. Plugins with n
 **Depends on:** D3 (manifest requires section defines what to validate), D4 (bundled primitives affect validation order), D6 (ExtensionRegistry is the unified validation target)
 **Status:** captured
 
-## D8: Module placement — desiredstate owns, ops implements
+## D8: Module placement — two-layer split across platform and desiredstate
 
-**Choice:** The plugin catalog infrastructure lives in desiredstate, not platform. The dependency chain is: ops → desiredstate → platform.
-- **platform** — owns step primitives (`PluginRegistry`, `Definition`, `Action`). The vocabulary layer. Unchanged.
-- **desiredstate** — owns the plugin catalog infrastructure: `PluginManifest`, `PluginRepository` SPI, `PluginCatalog`, `ExtensionRegistry`, dynamic lifecycle, conflict detection, dependency resolution. Lives in the existing `plugin/` module structure (api, runtime, deployment, spring). The catalog module extends this structure.
-- **ops** — implements plugins using desiredstate's infrastructure. Today: Java SPI implementations (container provisioners, topology management). Future: YAML plugins loaded from the catalog for infrastructure resource types.
+**Choice:** Split into generic catalog infrastructure (platform) and domain-specific activation (desiredstate). Platform implements the generic layer first; desiredstate consumes it.
+
+**Platform** (new modules) — generic, domain-agnostic catalog infrastructure:
+- `plugin-catalog-api/` — pure-Java SPI: `PluginCoordinates`, `PluginManifest` (interface), `PluginRequirements`, `PluginRepository` SPI, `PluginCatalog` (interface), `PluginEvent` (sealed), `ConflictException`
+- `plugin-catalog-core/` — framework-neutral implementations: `FilesystemPluginRepository`, `DependencyResolver` (topological sort on provides/requires), `ConflictDetector` (provides-collision check), `DefaultPluginCatalog` (aggregates repositories, validates, tracks active plugins)
+
+**Desiredstate** — domain-specific layer consuming platform's catalog:
+- `DesiredStatePluginManifest` extends `PluginManifest` with provisioner/actual-state/fault-policy/CBR/RAS fields
+- `DesiredStatePluginActivator` — wires loaded plugins into NodeProvisioner, ActualStateAdapter, FaultPolicy, etc.
+- `ExtensionRegistry` — desiredstate's view of all active extensions (static classpath + dynamic catalog)
+- Dynamic lifecycle management (watch/validate/activate cycle from D5)
+- Migration of existing `PluginDiscovery`, `PluginRuntimeBeans`, Spring auto-config (from D6)
+
+**Ops** — future consumer: YAML plugins for container/infra types, loaded via desiredstate's catalog
+
+**Implementation sequence:** Design spec for platform's generic layer is produced as a platform issue from this brainstorming session. Platform implements. Then desiredstate builds on top.
+
+**Alignment roadmap (future issues, not this scope):**
+- Platform step primitives (`Definition`) gain optional version field, aligned with `PluginManifest` model
+- Pages TS `CompositeCatalog` aligned with the same catalog concepts (coordinates, manifests) — TS-native transport (npm) but same metadata model
+- Ops `InfraTypeDiscovery` and `ContainerNodeTypes` consolidated to use catalog-consistent patterns
 **Alternatives:**
-- Catalog in platform — domain-agnostic placement, but the plugin model (provisioner, actual-state, fault policy, CBR, RAS) is inherently tied to desiredstate's domain types. Putting it in platform would either leak desiredstate concepts into platform or require an abstraction layer that adds complexity without value.
-- Catalog in ops — wrong dependency direction; other repos that use desiredstate plugins would need to depend on ops.
-**Rationale:** The YAML plugin concept IS a desiredstate concept — it defines node types with lifecycle management. The catalog manages these plugins. The existing `plugin/` module tiers (api, runtime, deployment, spring) already provide the right structure. Ops naturally depends on desiredstate and becomes a consumer/implementor of the catalog.
-**Trade-offs:** If a future non-desiredstate repo needs a catalog for a different kind of plugin, it would need its own catalog infrastructure (but that's the right thing — different domain, different plugin model).
-**Sources:** CLAUDE.md tier structure (desiredstate is Foundation-tier), boundary-rules.md (foundation repos stay domain-agnostic, but desiredstate's domain IS desired-state management), ops container lifecycle capability
-**Exploration:** quick
-**Depends on:** D1 (unified model scoped to desiredstate extensions), D6 (ExtensionRegistry naming scoped to desiredstate)
+- Build in desiredstate, extract to platform later — avoids cross-repo coordination now but means building the same thing twice or refactoring on extraction
+- Everything in desiredstate — simpler but creates fragmentation when pages or agency need catalogs; the generic concepts (coordinates, manifests, dependency resolution) are genuinely domain-agnostic
+**Rationale:** The org-wide audit revealed the same pattern repeated across platform (4-source CompositePluginRegistry), pages (TS port of same), and desiredstate (YAML plugins). No repo has versioning or dependency resolution. The generic catalog abstractions (coordinates, manifests, repositories, dependency resolution, conflict detection) are domain-agnostic and belong in platform alongside the existing step primitive infrastructure. Domain-specific activation (what a loaded plugin DOES) belongs in each consuming repo. This follows the existing convention: platform owns `PluginRegistry` (step primitive SPI), desiredstate builds `DesiredStatePrimitiveRegistrar` on top of it.
+**Trade-offs:** Requires cross-repo coordination (platform issue first, then desiredstate work). But the platform work is small and well-defined.
+**Sources:** Org-wide audit: platform 15+ registries with no versioning, pages TS port of step infrastructure, ops two competing type discovery strategies, platform boundary-rules.md SPI convention
+**Exploration:** deep-analysis (org-wide audit across platform, ops, pages)
+**Depends on:** D1 (unified model), D2 (coordinates), D3 (manifest), D4 (repository/packaging)
 **Status:** captured
