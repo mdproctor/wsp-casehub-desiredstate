@@ -48,3 +48,42 @@
 **Sources:** ActualStateAdapter SPI, NodeStatus enum, YamlPluginActualStateAdapter
 **Exploration:** quick
 **Status:** captured
+
+## D5: BridgeProvider contract — operation-oriented with optional plan
+
+**Choice:** Base SPI has `apply(BridgeRequest) → BridgeResult`, `destroy(BridgeRequest) → BridgeResult`, `readState(BridgeReadRequest) → BridgeStateResult`. Providers that support plan-apply cycles implement an additional `PlanCapable` mixin interface with `plan()` + `applyPlan()`.
+**Alternatives:**
+- Plan-then-execute for all — forces two-phase on simple providers that don't need it.
+- Message-based (single handle method) — loses type safety and discoverability for maximum extensibility.
+**Rationale:** Simple default for the common case. Terraform/Ansible implement PlanCapable for their native plan/check modes. Simple CLI-based providers just implement apply/destroy. Bridge runtime detects PlanCapable and uses it when available.
+**Trade-offs:** Two interfaces to understand for providers with plan support. PlanCapable is optional but important — risk of providers skipping it when they should implement it.
+**Depends on:** D1 (bridge-as-SPI-layer)
+**Sources:** NodeProvisioner SPI contract, Terraform plan-apply workflow, Ansible check mode
+**Exploration:** quick
+**Status:** captured
+
+## D6: Module structure — top-level bridge/ module
+
+**Choice:** New top-level `bridge/` module parallel to `plugin/`. Sub-modules: `bridge/api/` (BridgeProvider SPI, request/response types), `bridge/runtime/` (BridgeProvisioner, BridgeActualStateAdapter, lifecycle management), `bridge/deployment/` (Quarkus build extension), `bridge/spring/` (Spring auto-config), `bridge/testing/` (test framework). Concrete providers in separate modules: `bridge/terraform/`, `bridge/ansible/`.
+**Alternatives:**
+- Under plugin/ — bridges have fundamentally different dependencies (gRPC, process mgmt) from YAML step pipelines. Muddles plugin module concerns.
+- Separate repo — overkill while SPI is still evolving. Cross-repo SPI changes would slow iteration.
+**Rationale:** Bridge is a distinct tier with distinct dependencies. Same organizational pattern as plugin/, annotations/, yaml/, ts-dsl/. Concrete providers have their own dependency trees (gRPC for Terraform).
+**Trade-offs:** More modules in an already large repo. bridge/api/ must be kept minimal to avoid pulling bridge dependencies into the core.
+**Depends on:** D1 (bridge-as-SPI-layer)
+**Sources:** plugin/ module structure, annotations/ module structure, #131 tier model
+**Exploration:** quick
+**Status:** captured
+
+## D7: Provider lifecycle — runtime-managed
+
+**Choice:** Bridge runtime manages external provider processes via manifest descriptors. Manifest declares: binary path, health check config, startup args, restart policy, or external service endpoint. Runtime handles startup, health monitoring, restart on crash, graceful shutdown. BridgeProvider implementations receive a ready connection — they never manage processes. Two modes: "managed process" (runtime starts/stops binary) and "external service" (runtime manages connection to pre-existing endpoint).
+**Alternatives:**
+- Provider-managed — BridgeProvider SPI includes start/stop/isHealthy. Full control but every provider reimplements lifecycle.
+- Pluggable lifecycle strategy — manifest selects strategy type. Extensible but more moving parts without clear benefit over runtime-managed with modes.
+**Rationale:** Keeps provider implementations thin (just protocol translation). Consistent lifecycle management across all bridges. Centralized health monitoring.
+**Trade-offs:** Manifest must be flexible enough for different lifecycle models. Unusual providers may need escape hatch to code-backed lifecycle.
+**Depends on:** D2 (design-agnostic deployment)
+**Sources:** #131 sidecar evaluation, Terraform go-plugin process model
+**Exploration:** quick
+**Status:** captured
