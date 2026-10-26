@@ -142,6 +142,31 @@ filesystem `Path` objects instead of the classpath. Bundled scripts are loaded v
 register into platform's `PluginRegistry` first, then the node type activates in
 `ExtensionRegistry`. A plugin can satisfy its own `requires.primitives` from its bundled content.
 
+### Plugin Manifest SPI
+
+`PluginManifest` is the central interface in `plugin-catalog-api/` — all catalog components compose
+with it:
+
+```java
+public interface PluginManifest {
+    String name();                          // plugin identity (= NodeType string)
+    String version();                       // semver string
+    Optional<String> description();         // human-readable, optional
+    PluginRequirements requirements();      // runtime version, required primitives, required types
+}
+
+public record PluginRequirements(
+    Optional<String> runtimeVersionRange,   // semver range, e.g. ">=1.0.0"
+    List<String> primitives,                // required step primitive names
+    List<String> types                      // required NodeType names
+) {}
+```
+
+`PluginManifest` is pure-Java, domain-agnostic — it carries only identity, version, and dependency
+metadata. Domain-specific fields (provisioner steps, actual-state steps, fault policies, CBR, RAS)
+live in `DesiredStatePluginManifest extends PluginManifest`, which adds the desiredstate-specific
+contract.
+
 ### Repository SPI
 
 ```java
@@ -205,6 +230,49 @@ are added/removed via the `register()`/`unregister()` methods at runtime.
 `DesiredStatePluginActivator` before registration — it wraps each dynamic plugin's provisioner
 with the appropriate `NodeLifecycleDefinition` if one exists.
 
+### Dynamic Policy Infrastructure
+
+`FaultPolicyEngine` and `DriftPolicyEngine` have the same immutability constraint as the routing
+tables — both use `List.copyOf(policies)` in their constructors and are held as `final` fields in
+`ReconciliationLoop`. Dynamic plugins that declare fault policies or drift policies need a mutable
+policy registration path.
+
+**`DynamicFaultPolicyEngine`** replaces `FaultPolicyEngine` when dynamic plugins are enabled:
+
+```java
+public class DynamicFaultPolicyEngine {
+    private final CopyOnWriteArrayList<FaultPolicy> policies;
+
+    public DynamicFaultPolicyEngine(List<FaultPolicy> staticPolicies) {
+        this.policies = new CopyOnWriteArrayList<>(staticPolicies);
+    }
+
+    void addPolicy(FaultPolicy policy) { ... }
+    void removePolicy(FaultPolicy policy) { ... }
+
+    // evaluate() identical to FaultPolicyEngine — iterates policies, merges mutations, detects conflicts
+}
+```
+
+Same pattern for **`DynamicDriftPolicyEngine`** with `CopyOnWriteArrayList<DriftPolicy>`.
+
+`CopyOnWriteArrayList` is the correct data structure: reads are lock-free (every reconciliation
+cycle evaluates policies), writes are rare (only when plugins are added/removed), and the copy-on-
+write semantics guarantee that in-flight evaluations always see a consistent snapshot.
+
+Both engines are injected into `ReconciliationLoop` at construction time. For static-only
+deployments, the existing `FaultPolicyEngine`/`DriftPolicyEngine` with `List.copyOf()` remain
+unchanged.
+
+**CBR metadata** registration uses `CbrPluginMetadata` beans — these are already managed by the
+`DesiredStatePluginActivator` internally (not injected into `ReconciliationLoop`). The activator
+maintains a `ConcurrentHashMap<NodeType, CbrPluginMetadata>` for dynamic plugins.
+
+**RAS situation definitions** use `SituationDefinitionProvider` — `YamlPluginRasRegistrar` implements
+this interface. The activator registers dynamic RAS providers with the `SituationRegistry` via its
+existing `register(SituationDefinitionProvider)` API. Unregistration on plugin deactivation uses
+`unregister(String pluginType)`.
+
 ### Dynamic Plugin Lifecycle
 
 YAML plugins are dynamic — they load, update, and unload at runtime without restart.
@@ -216,7 +284,8 @@ The `DesiredStatePluginActivator` is itself a CDI/Spring bean registered at buil
 dynamic plugins internally without per-plugin CDI bean registration:
 
 1. `DesiredStatePluginActivator` holds a reference to `DynamicNodeProvisionerRouter`,
-   `DynamicActualStateAdapterRouter`, platform `PluginRegistry`, and `ExtensionRegistry`
+   `DynamicActualStateAdapterRouter`, `DynamicFaultPolicyEngine`, `DynamicDriftPolicyEngine`,
+   platform `PluginRegistry`, and `ExtensionRegistry`
 2. For each activated plugin, it creates per-plugin `YamlPluginProvisioner` and
    `YamlPluginActualStateAdapter` instances (each handling a single type)
 3. It registers these directly with the dynamic routers via `register()`
@@ -238,22 +307,37 @@ plugins internally for consistency with the Quarkus path.
 5. Check for type collisions with existing active plugins
 6. Create per-plugin `YamlPluginProvisioner` and `YamlPluginActualStateAdapter`
 7. Register provisioner/adapter with dynamic routers
-8. Register fault policies, CBR metadata, and RAS definitions
+8. Register fault policies via `DynamicFaultPolicyEngine.addPolicy()`, drift policies via
+   `DynamicDriftPolicyEngine.addPolicy()`, CBR metadata into activator's internal map, and RAS
+   definitions via `SituationRegistry.register()`
 9. Update `ExtensionRegistry` with the new type
 10. Fire `PluginActivatedEvent` via CDI/Spring event bus
 
 **Deactivation guard:** A plugin cannot be deactivated if any active tenancy has nodes of its type
-in a non-terminal state. The guard queries the `DesiredStateGraphStore` (persistence layer) to find
-all tenancy graphs containing nodes of the plugin's type, then checks each for non-terminal node
-states. This avoids any dependency on `ReconciliationLoop` internals (the `TenantLoop` inner class
-is private and must not be accessed).
+in a non-terminal state. The guard uses the existing `ReconciliationStateStore` interface
+(`api/src/main/java/io/casehub/desiredstate/api/ReconciliationStateStore.java`), which currently
+provides `store()`, `load()`, and `remove()` keyed by tenancyId. Two methods must be added:
 
-To prevent races between the guard check and concurrent graph mutations:
+- `Set<String> allTenancyIds()` — returns all tenancyIds with stored graphs (for the in-memory
+  store, this is `snapshots.keySet()`; for JPA stores, a simple `SELECT DISTINCT tenancy_id` query)
+- No query-by-NodeType method is needed — the guard iterates `allTenancyIds()`, calls `load()` for
+  each, and checks the graph's `nodes()` for the target type. This is correct because deactivation
+  is a rare operation (not on the reconciliation hot path), and the iteration is bounded by the
+  number of tenancies.
+
+**"Last reconciled" vs "current" graph gap:** `ReconciliationStateStore` stores the last *reconciled*
+desired graph, which may lag behind the *current* desired graph (held in `TenantLoop.desiredRef`'s
+`AtomicReference`). This gap is bounded by one reconciliation cycle and is safe given the multi-step
+deactivation protocol:
 1. Mark the plugin as `DEACTIVATING` — the dynamic router stops accepting new provisions for this type
    (returns `ProvisionResult.Failed("Plugin deactivating")`)
 2. Wait for in-flight reconciliation cycles to complete (bounded by the reconciliation cycle timeout)
-3. Re-check the guard (graphs may have changed during in-flight operations)
-4. If clear, unregister from dynamic routers and `ExtensionRegistry`
+3. After in-flight cycles complete, the store reflects the latest reconciled state — the gap is closed
+4. Re-check the guard against the now-current store state
+5. If clear, unregister from dynamic routers and `ExtensionRegistry`
+
+The `DEACTIVATING` state in step 1 prevents new nodes of the target type from being provisioned,
+which closes the window for new graph mutations to add nodes of that type during steps 2-4.
 
 Operators can force-deactivate if needed, bypassing the guard.
 
@@ -265,7 +349,13 @@ Operators can force-deactivate if needed, bypassing the guard.
    and the old version remains active. The new version stays on disk — it will be retried on the
    next explicit reload or filesystem change.
 4. If activation of the new version fails after deactivation of the old, the old version is
-   **rolled back** — reactivated from its still-present directory.
+   **rolled back** — reactivated from its still-present directory. If the old version's directory
+   has been removed (operator upgraded by replacing rather than adding alongside), rollback is
+   impossible — the plugin type becomes **unavailable** until the operator intervenes. This is
+   logged as a clear error: `"Plugin <type> version <new> activation failed; rollback to <old>
+   impossible — directory removed. Restore <old> to plugins/<type>/<old>/ to recover."` The
+   deactivation guard (step 2) minimizes this window, but it cannot prevent a determined operator
+   from deleting the old directory between deactivation and activation.
 
 **Reload endpoint:** `POST /plugins/reload` triggers re-scan of the filesystem plugin directory.
 Handles environments where filesystem notifications are unreliable (NFS, container overlay mounts).
@@ -401,7 +491,7 @@ no catalog wrapper needed for compile-time extension mechanisms.
 | Module | Change |
 |--------|--------|
 | `plugin/api/` | Gains `DesiredStatePluginManifest`, `ExtensionRegistry` |
-| `plugin/runtime/` | `PluginCatalog` integration, `DesiredStatePluginActivator`, dynamic lifecycle, cross-tenant type index |
+| `plugin/runtime/` | `PluginCatalog` integration, `DesiredStatePluginActivator`, dynamic lifecycle management, deactivation guard via `ReconciliationStateStore` query |
 | `plugin/deployment/` | `YamlPluginProcessor` evolves to validate with evolved `PluginHeader` |
 | `plugin/spring/` | `DesiredStatePluginAutoConfiguration` refactored to consume `PluginCatalog` |
 | `plugin/testing/` | Test fixtures for dynamic plugin loading — extends the existing plugin testing framework (#135: `PluginTestExtension`, declarative `*.test.yaml`, `HttpMockInfrastructure`, `ShellSandboxInfrastructure`, `FaultInjectingStepRunner`) with dynamic lifecycle test support: loading/unloading plugins at runtime during tests, validating deactivation guards, and testing version update rollback |
