@@ -237,10 +237,31 @@ tables — both use `List.copyOf(policies)` in their constructors and are held a
 `ReconciliationLoop`. Dynamic plugins that declare fault policies or drift policies need a mutable
 policy registration path.
 
-**`DynamicFaultPolicyEngine`** replaces `FaultPolicyEngine` when dynamic plugins are enabled:
+**Interface extraction:** `ReconciliationLoop` currently declares its fields using the concrete
+classes `FaultPolicyEngine` and `DriftPolicyEngine` (not interfaces). To enable dynamic
+alternatives, two interfaces are extracted — following the same pattern that `NodeProvisionerRouter`
+(interface) established for `DynamicNodeProvisionerRouter` in R1-02:
 
 ```java
-public class DynamicFaultPolicyEngine {
+public interface FaultPolicyEvaluator {
+    List<GraphMutation<DesiredNode>> evaluate(String tenancyId, FaultEvent event,
+                                              DesiredStateGraph current, ActualState actual);
+}
+
+public interface DriftPolicyEvaluator {
+    DriftDecision evaluate(NodeId nodeId, NodeStatus status,
+                           DesiredNode node, DriftContext context);
+}
+```
+
+`ReconciliationLoop` changes its field types from `FaultPolicyEngine` → `FaultPolicyEvaluator` and
+`DriftPolicyEngine` → `DriftPolicyEvaluator`. The existing concrete classes implement the new
+interfaces with no behavioral change. The `ReconciliationLoop.Builder` accepts the interface types.
+
+**`DynamicFaultPolicyEngine`** implements `FaultPolicyEvaluator` with a mutable policy list:
+
+```java
+public class DynamicFaultPolicyEngine implements FaultPolicyEvaluator {
     private final CopyOnWriteArrayList<FaultPolicy> policies;
 
     public DynamicFaultPolicyEngine(List<FaultPolicy> staticPolicies) {
@@ -254,24 +275,26 @@ public class DynamicFaultPolicyEngine {
 }
 ```
 
-Same pattern for **`DynamicDriftPolicyEngine`** with `CopyOnWriteArrayList<DriftPolicy>`.
+Same pattern for **`DynamicDriftPolicyEngine`** implementing `DriftPolicyEvaluator` with
+`CopyOnWriteArrayList<DriftPolicy>`.
 
 `CopyOnWriteArrayList` is the correct data structure: reads are lock-free (every reconciliation
 cycle evaluates policies), writes are rare (only when plugins are added/removed), and the copy-on-
 write semantics guarantee that in-flight evaluations always see a consistent snapshot.
 
-Both engines are injected into `ReconciliationLoop` at construction time. For static-only
-deployments, the existing `FaultPolicyEngine`/`DriftPolicyEngine` with `List.copyOf()` remain
-unchanged.
+For static-only deployments, the existing `FaultPolicyEngine`/`DriftPolicyEngine` with
+`List.copyOf()` satisfy the interfaces unchanged.
 
 **CBR metadata** registration uses `CbrPluginMetadata` beans — these are already managed by the
 `DesiredStatePluginActivator` internally (not injected into `ReconciliationLoop`). The activator
 maintains a `ConcurrentHashMap<NodeType, CbrPluginMetadata>` for dynamic plugins.
 
 **RAS situation definitions** use `SituationDefinitionProvider` — `YamlPluginRasRegistrar` implements
-this interface. The activator registers dynamic RAS providers with the `SituationRegistry` via its
-existing `register(SituationDefinitionProvider)` API. Unregistration on plugin deactivation uses
-`unregister(String pluginType)`.
+this interface and produces `SituationRegistration` objects. The activator registers dynamic RAS
+situations with `SituationDefinitionRegistry` (`io.casehub.ras.runtime`) via its existing
+`register(SituationRegistration)` method. Deregistration on plugin deactivation uses
+`deregister(String situationId)`. Both methods are `synchronized` and rebuild the internal
+`RegistrySnapshot` atomically.
 
 ### Dynamic Plugin Lifecycle
 
@@ -309,9 +332,25 @@ plugins internally for consistency with the Quarkus path.
 7. Register provisioner/adapter with dynamic routers
 8. Register fault policies via `DynamicFaultPolicyEngine.addPolicy()`, drift policies via
    `DynamicDriftPolicyEngine.addPolicy()`, CBR metadata into activator's internal map, and RAS
-   definitions via `SituationRegistry.register()`
+   situations via `SituationDefinitionRegistry.register(SituationRegistration)`
 9. Update `ExtensionRegistry` with the new type
 10. Fire `PluginActivatedEvent` via CDI/Spring event bus
+
+**Activation rollback on partial failure:** If any step 2-9 fails after earlier steps have
+succeeded, the activator executes a compensating cleanup that undoes all completed registrations in
+reverse order. This prevents inconsistent states such as a routable provisioner (step 7) with no
+fault policies (step 8 failed), or orphaned primitives in `PluginRegistry` (step 2 succeeded but
+step 7 failed). The cleanup sequence:
+
+- Unregister from `ExtensionRegistry` (undo step 9)
+- Deregister RAS situations via `SituationDefinitionRegistry.deregister()` (undo step 8)
+- Remove policies from `DynamicFaultPolicyEngine`/`DynamicDriftPolicyEngine` (undo step 8)
+- Unregister provisioner/adapter from dynamic routers (undo step 7)
+- Unregister bundled primitives from platform `PluginRegistry` via `unregister()` (undo step 2)
+
+Steps 1, 3-6 are validation/creation steps with no external side effects — they don't need
+compensating actions. The plugin enters `FAILED` state with the originating exception logged.
+Retry on next filesystem change or explicit reload.
 
 **Deactivation guard:** A plugin cannot be deactivated if any active tenancy has nodes of its type
 in a non-terminal state. The guard uses the existing `ReconciliationStateStore` interface
