@@ -17,9 +17,21 @@ Closed #134 (rollback — revert to previous desired-state graph). Landed as `57
 - **Code review fix** — history store cleanup on tenant stop (TenantLoop.stop() calls historyStore.remove())
 
 **What's deferred:**
-- #187 — make history prune depth configurable via PreferenceProvider (hardcoded to 10, matches default)
-- Per-node rollback deferred by design — functionally `UpdateNode` with historical spec lookup, no new runtime capability needed
-- GraphSerializer doesn't serialize ordering constraints — pre-existing gap, not introduced by this work
+- #187 — make history prune depth configurable via PreferenceProvider (XS/Low)
+- #188 — per-node rollback convenience API (S/Med)
+- #189 — GraphSerializer ordering constraints serialization (XS/Low, bug)
+
+## Next Session
+
+Start with `work start 187` — all three issues are follow-ons from #134 rollback work.
+
+| # | Title | Scale | Complexity | Blocked by | Notes |
+|---|-------|-------|------------|------------|-------|
+| 189 | fix: GraphSerializer ordering constraints | XS | Low | — | Bug fix, do first — unblocks correct history round-trips |
+| 187 | feat: PreferenceProvider for history prune depth | XS | Low | — | Mechanical wiring, same session as 189 |
+| 188 | feat: per-node rollback | S | Med | — | Builds on history store from #134, needs design for dependency semantics |
+
+**Recommended order:** 189 → 187 → 188. The two XS issues are quick wins on the same code paths. #188 is the meatiest and benefits from a fresh context window.
 
 **Blog entries:**
 - Diary: workspace blog/2026-10-26-mdp01-rollback-desired-state.md
@@ -39,3 +51,5 @@ Closed #134 (rollback — revert to previous desired-state graph). Landed as `57
 | Decisions | specs/issue-134-rollback-desired-state-graph/decisions.md (12 decisions, reviewed) |
 | Implementation plan | plans/2026-10-26-rollback-desired-state-graph.md |
 | Follow-up | casehubio/casehub-desiredstate#187 (preference-driven prune depth) |
+| Follow-up | casehubio/casehub-desiredstate#188 (per-node rollback) |
+| Follow-up | casehubio/casehub-desiredstate#189 (GraphSerializer ordering constraints) |
