@@ -1,0 +1,15 @@
+# Work Plan — issue-184-terraform-bridge-adapter
+
+## State
+branch: issue-184-terraform-bridge-adapter
+state: scaffolded
+project-sha: 
+date: 
+issue-repo: casehubio/casehub-desiredstate
+covers: 184
+design-repo: 
+design-section-hashes: 
+flyway-next-v: 
+
+## Queue
+- [ ] casehubio/casehub-desiredstate#184 — Issue #184 ← active
