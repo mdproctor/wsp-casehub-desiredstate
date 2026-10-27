@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" font-family="system-ui, -apple-system, sans-serif">
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#475569"/>
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="400" y="30" text-anchor="middle" font-size="16" font-weight="600" fill="#1e293b">Go-Plugin Handshake — Java Host Side</text>
+
+  <!-- CaseHub JVM box -->
+  <rect x="40" y="55" width="300" height="320" rx="10" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="190" y="80" text-anchor="middle" font-size="13" font-weight="600" fill="#2563eb">CaseHub JVM</text>
+
+  <!-- Provider Process box -->
+  <rect x="460" y="55" width="300" height="320" rx="10" fill="#fef2f2" stroke="#dc2626" stroke-width="2"/>
+  <text x="610" y="80" text-anchor="middle" font-size="13" font-weight="600" fill="#dc2626">Provider Binary (Go)</text>
+
+  <!-- Step 1: Start process -->
+  <rect x="65" y="100" width="250" height="36" rx="6" fill="white" stroke="#2563eb" stroke-width="1"/>
+  <text x="190" y="123" text-anchor="middle" font-size="11" fill="#1e293b">1. ProcessBuilder.start()</text>
+
+  <rect x="485" y="100" width="250" height="36" rx="6" fill="white" stroke="#dc2626" stroke-width="1"/>
+  <text x="610" y="123" text-anchor="middle" font-size="11" fill="#1e293b">Provider starts, checks cookie</text>
+
+  <line x1="315" y1="118" x2="480" y2="118" stroke="#475569" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <text x="397" y="110" text-anchor="middle" font-size="9" fill="#64748b">TF_PLUGIN_MAGIC_COOKIE env</text>
+
+  <!-- Step 2: Handshake -->
+  <rect x="65" y="160" width="250" height="36" rx="6" fill="white" stroke="#2563eb" stroke-width="1"/>
+  <text x="190" y="183" text-anchor="middle" font-size="11" fill="#1e293b">2. Parse stdout handshake</text>
+
+  <rect x="485" y="160" width="250" height="36" rx="6" fill="white" stroke="#dc2626" stroke-width="1"/>
+  <text x="610" y="183" text-anchor="middle" font-size="11" fill="#1e293b">Writes: 1|5|unix|/tmp/sock|grpc</text>
+
+  <line x1="480" y1="178" x2="320" y2="178" stroke="#475569" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <text x="397" y="170" text-anchor="middle" font-size="9" fill="#64748b">stdout pipe</text>
+
+  <!-- Step 3: gRPC Connect -->
+  <rect x="65" y="220" width="250" height="36" rx="6" fill="white" stroke="#2563eb" stroke-width="1"/>
+  <text x="190" y="243" text-anchor="middle" font-size="11" fill="#1e293b">3. gRPC connect (unix socket)</text>
+
+  <rect x="485" y="220" width="250" height="36" rx="6" fill="white" stroke="#dc2626" stroke-width="1"/>
+  <text x="610" y="243" text-anchor="middle" font-size="11" fill="#1e293b">gRPC server listening</text>
+
+  <line x1="315" y1="238" x2="480" y2="238" stroke="#475569" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrowhead)"/>
+  <text x="397" y="230" text-anchor="middle" font-size="9" fill="#64748b">unix domain socket</text>
+
+  <!-- Step 4: Schema -->
+  <rect x="65" y="280" width="250" height="36" rx="6" fill="#dbeafe" stroke="#2563eb" stroke-width="1"/>
+  <text x="190" y="303" text-anchor="middle" font-size="11" font-weight="500" fill="#1e293b">4. GetProviderSchema RPC</text>
+
+  <rect x="485" y="280" width="250" height="36" rx="6" fill="#fee2e2" stroke="#dc2626" stroke-width="1"/>
+  <text x="610" y="303" text-anchor="middle" font-size="11" font-weight="500" fill="#1e293b">Returns all resource schemas</text>
+
+  <line x1="315" y1="293" x2="480" y2="293" stroke="#475569" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <line x1="480" y1="303" x2="320" y2="303" stroke="#475569" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <text x="397" y="285" text-anchor="middle" font-size="9" fill="#64748b">protobuf v5/v6</text>
+
+  <!-- Step 5: Auto-discover -->
+  <rect x="65" y="340" width="250" height="26" rx="6" fill="#dcfce7" stroke="#16a34a" stroke-width="1"/>
+  <text x="190" y="358" text-anchor="middle" font-size="11" font-weight="500" fill="#15803d">→ NodeTypes + PluginSpecSchema</text>
+</svg>

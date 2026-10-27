@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" font-family="system-ui, -apple-system, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#475569"/>
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="400" y="28" text-anchor="middle" font-size="16" font-weight="600" fill="#1e293b">Terraform Bridge Adapter — Component Architecture</text>
+
+  <!-- User YAML layer -->
+  <rect x="220" y="45" width="360" height="44" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="2"/>
+  <text x="400" y="72" text-anchor="middle" font-size="12" font-weight="600" fill="#15803d">Desired State YAML — type: tf:hashicorp/aws:aws_instance</text>
+
+  <line x1="400" y1="89" x2="400" y2="112" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Reconciliation Loop -->
+  <rect x="140" y="115" width="520" height="40" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+  <text x="400" y="140" text-anchor="middle" font-size="12" font-weight="600" fill="#92400e">Reconciliation Loop — drift detection, fault escalation, ordering</text>
+
+  <line x1="400" y1="155" x2="400" y2="178" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Bridge SPI Layer -->
+  <rect x="80" y="180" width="640" height="100" rx="10" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="400" y="200" text-anchor="middle" font-size="12" font-weight="600" fill="#2563eb">Bridge SPI (bridge/api + bridge/runtime)</text>
+
+  <!-- Inner components -->
+  <rect x="100" y="210" width="180" height="55" rx="6" fill="white" stroke="#93c5fd" stroke-width="1"/>
+  <text x="190" y="232" text-anchor="middle" font-size="10" font-weight="500" fill="#1e293b">BridgeProvisioner</text>
+  <text x="190" y="250" text-anchor="middle" font-size="9" fill="#64748b">NodeProvisioner impl</text>
+
+  <rect x="310" y="210" width="180" height="55" rx="6" fill="white" stroke="#93c5fd" stroke-width="1"/>
+  <text x="400" y="232" text-anchor="middle" font-size="10" font-weight="500" fill="#1e293b">BridgeActualStateAdapter</text>
+  <text x="400" y="250" text-anchor="middle" font-size="9" fill="#64748b">ActualStateAdapter impl</text>
+
+  <rect x="520" y="210" width="180" height="55" rx="6" fill="white" stroke="#93c5fd" stroke-width="1"/>
+  <text x="610" y="232" text-anchor="middle" font-size="10" font-weight="500" fill="#1e293b">BridgeOutputStateStore</text>
+  <text x="610" y="250" text-anchor="middle" font-size="9" fill="#64748b">Per-resource state</text>
+
+  <line x1="400" y1="280" x2="400" y2="305" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Terraform Bridge Layer -->
+  <rect x="80" y="308" width="640" height="100" rx="10" fill="#faf5ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="400" y="328" text-anchor="middle" font-size="12" font-weight="600" fill="#6d28d9">Terraform Bridge (bridge/terraform)</text>
+
+  <rect x="100" y="338" width="145" height="55" rx="6" fill="white" stroke="#c4b5fd" stroke-width="1"/>
+  <text x="172" y="358" text-anchor="middle" font-size="10" font-weight="500" fill="#1e293b">TerraformBridge</text>
+  <text x="172" y="373" text-anchor="middle" font-size="10" font-weight="500" fill="#1e293b">Provider</text>
+  <text x="172" y="388" text-anchor="middle" font-size="9" fill="#64748b">plan/apply/read</text>
+
+  <rect x="260" y="338" width="115" height="55" rx="6" fill="white" stroke="#c4b5fd" stroke-width="1"/>
+  <text x="317" y="358" text-anchor="middle" font-size="10" font-weight="500" fill="#1e293b">Schema</text>
+  <text x="317" y="373" text-anchor="middle" font-size="10" font-weight="500" fill="#1e293b">Translator</text>
+  <text x="317" y="388" text-anchor="middle" font-size="9" fill="#64748b">auto-discover</text>
+
+  <rect x="390" y="338" width="115" height="55" rx="6" fill="white" stroke="#c4b5fd" stroke-width="1"/>
+  <text x="447" y="358" text-anchor="middle" font-size="10" font-weight="500" fill="#1e293b">Protocol</text>
+  <text x="447" y="373" text-anchor="middle" font-size="10" font-weight="500" fill="#1e293b">v5 / v6</text>
+  <text x="447" y="388" text-anchor="middle" font-size="9" fill="#64748b">cty + msgpack</text>
+
+  <rect x="520" y="338" width="90" height="55" rx="6" fill="white" stroke="#c4b5fd" stroke-width="1"/>
+  <text x="565" y="362" text-anchor="middle" font-size="10" font-weight="500" fill="#1e293b">GoPlugin</text>
+  <text x="565" y="377" text-anchor="middle" font-size="10" font-weight="500" fill="#1e293b">Host</text>
+
+  <rect x="625" y="338" width="80" height="55" rx="6" fill="white" stroke="#c4b5fd" stroke-width="1"/>
+  <text x="665" y="362" text-anchor="middle" font-size="10" font-weight="500" fill="#1e293b">Registry</text>
+  <text x="665" y="377" text-anchor="middle" font-size="10" font-weight="500" fill="#1e293b">Client</text>
+
+  <line x1="400" y1="408" x2="400" y2="433" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Provider binary -->
+  <rect x="220" y="435" width="360" height="44" rx="8" fill="#fef2f2" stroke="#dc2626" stroke-width="2"/>
+  <text x="400" y="458" text-anchor="middle" font-size="11" fill="#991b1b">terraform-provider-aws (Go binary) — gRPC over unix socket</text>
+  <text x="400" y="474" text-anchor="middle" font-size="10" fill="#b91c1c">Any Terraform/OpenTofu provider. Unmodified.</text>
+</svg>
