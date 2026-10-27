@@ -13,13 +13,13 @@ flyway-next-v:
 
 ## Queue
 - [ ] casehubio/casehub-desiredstate#183 — Issue #183 ← active
-  - [ ] Batch 1: SPI Foundation
-    - [ ] Task 1: Bridge SPI interfaces and types
-  - [ ] Batch 2: Runtime Core
-    - [ ] Task 2: Bridge manifest parser
-    - [ ] Task 3: BridgeProvisioner and BridgeActualStateAdapter and BridgeDiscovery
-  - [ ] Batch 3: Framework Wiring
-    - [ ] Task 4: Quarkus deployment extension
-    - [ ] Task 5: Spring auto-configuration
-  - [ ] Batch 4: Build Verification
-    - [ ] Task 6: Full build and CLAUDE.md update
+  - [x] Batch 1: SPI Foundation
+    - [x] Task 1: Bridge SPI interfaces and types
+  - [x] Batch 2: Runtime Core
+    - [x] Task 2: Bridge manifest parser
+    - [x] Task 3: BridgeProvisioner and BridgeActualStateAdapter and BridgeDiscovery
+  - [x] Batch 3: Framework Wiring
+    - [x] Task 4: Quarkus deployment extension
+    - [x] Task 5: Spring auto-configuration
+  - [x] Batch 4: Build Verification
+    - [x] Task 6: Full build and CLAUDE.md update
