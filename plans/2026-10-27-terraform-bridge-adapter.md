@@ -37,7 +37,7 @@ depend on `plugin/runtime/` (which pulls in Quarkus, step pipeline, etc.). Move 
 `plugin/api/` where `YamlNodeSpec` already lives.
 
 **Files:**
-- Move: `plugin/runtime/src/main/java/io/casehub/desiredstate/plugin/model/PluginSpecSchema.java` → `plugin/api/src/main/java/io/casehub/desiredstate/plugin/api/PluginSpecSchema.java` (use `ide_move_file`)
+- Move: `../../plugin/api/src/main/java/io/casehub/desiredstate/plugin/api/PluginSpecSchema.java` → `plugin/api/src/main/java/io/casehub/desiredstate/plugin/api/PluginSpecSchema.java` (use `ide_move_file`)
 - Move: `plugin/runtime/src/main/java/io/casehub/desiredstate/plugin/model/PluginFieldDef.java` → `plugin/api/src/main/java/io/casehub/desiredstate/plugin/api/PluginFieldDef.java` (use `ide_move_file`)
 - Modify: All files importing from `io.casehub.desiredstate.plugin.model.PluginSpecSchema` or `PluginFieldDef` (use `ide_refactor_rename` on the package, or verify `ide_move_file` updates references)
 
@@ -51,7 +51,7 @@ Use `ide_find_references` on both classes to identify all importers before movin
 
 - [ ] **Step 2: Move PluginSpecSchema to plugin/api**
 
-Use `ide_move_file` to move `plugin/runtime/src/main/java/io/casehub/desiredstate/plugin/model/PluginSpecSchema.java` to `plugin/api/src/main/java/io/casehub/desiredstate/plugin/api/PluginSpecSchema.java`. Verify all references updated.
+Use `ide_move_file` to move `../../plugin/api/src/main/java/io/casehub/desiredstate/plugin/api/PluginSpecSchema.java` to `plugin/api/src/main/java/io/casehub/desiredstate/plugin/api/PluginSpecSchema.java`. Verify all references updated.
 
 - [ ] **Step 3: Move PluginFieldDef to plugin/api**
 
@@ -1859,7 +1859,7 @@ Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
 - `bridge/api/src/main/java/io/casehub/desiredstate/bridge/BridgeReadRequest.java` — to be extended
 - `bridge/runtime/src/main/java/io/casehub/desiredstate/bridge/runtime/BridgeProvisioner.java` — to be updated
 - `bridge/runtime/src/main/java/io/casehub/desiredstate/bridge/runtime/BridgeActualStateAdapter.java` — to be updated
-- `plugin/runtime/src/main/java/io/casehub/desiredstate/plugin/model/PluginSpecSchema.java` — to be moved to plugin/api
+- `../../plugin/api/src/main/java/io/casehub/desiredstate/plugin/api/PluginSpecSchema.java` — to be moved to plugin/api
 - `plugin/runtime/src/main/java/io/casehub/desiredstate/plugin/model/PluginFieldDef.java` — to be moved to plugin/api
 - `runtime-core/src/main/java/io/casehub/desiredstate/runtime/DefaultNodeProvisionerRouter.java` — existing router pattern
 - GitHub #182 — bridge adapter architecture epic

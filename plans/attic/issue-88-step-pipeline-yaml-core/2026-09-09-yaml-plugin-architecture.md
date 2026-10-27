@@ -349,7 +349,7 @@ Define the structured model types for plugin YAML and a Jackson-based parser.
 **Files:**
 - Create: `plugin/runtime/src/main/java/io/casehub/desiredstate/plugin/model/PluginModel.java`
 - Create: `plugin/runtime/src/main/java/io/casehub/desiredstate/plugin/model/PluginHeader.java`
-- Create: `plugin/runtime/src/main/java/io/casehub/desiredstate/plugin/model/PluginSpecSchema.java`
+- Create: `../../../../plugin/api/src/main/java/io/casehub/desiredstate/plugin/api/PluginSpecSchema.java`
 - Create: `plugin/runtime/src/main/java/io/casehub/desiredstate/plugin/model/PluginFieldDef.java`
 - Create: `plugin/runtime/src/main/java/io/casehub/desiredstate/plugin/model/PluginStepDef.java`
 - Create: `plugin/runtime/src/main/java/io/casehub/desiredstate/plugin/model/PluginProvisionerDef.java`

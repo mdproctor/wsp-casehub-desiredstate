@@ -13,15 +13,6 @@ flyway-next-v:
 
 ## Queue
 - [ ] casehubio/casehub-desiredstate#184 — Issue #184 ← active
-  - [ ] Batch 1: Prerequisites
-    - [ ] Task 1: Extract PluginSpecSchema to plugin/api
-    - [ ] Task 2: BridgeOutputStateStore SPI and BridgeReadRequest
-  - [ ] Batch 2: Protocol Foundation
-    - [ ] Task 3: Module scaffold proto generation GoPluginHost
-    - [ ] Task 4: CtyDecoder TerraformProtocol v5 v6 adapters
-  - [ ] Batch 3: Schema and Provider
-    - [ ] Task 5: SchemaTranslator and SchemaCache
-    - [ ] Task 6: TerraformBridgeProvider and ProviderProcessManager
-  - [ ] Batch 4: Registry and Tests
-    - [ ] Task 7: ProviderRegistryClient
-    - [ ] Task 8: Integration tests null and random providers
+  - [x] Batch 1: Fix Gaps
+    - [x] Task 1: Fix unix socket gRPC transport
+    - [x] Task 2: Dynamic router registration

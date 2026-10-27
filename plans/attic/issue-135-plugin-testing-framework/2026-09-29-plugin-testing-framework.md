@@ -204,25 +204,21 @@ import io.casehub.desiredstate.plugin.model.PluginModel;
 import io.casehub.desiredstate.plugin.model.PluginSpecSchema;
 import io.casehub.yaml.step.catalog.ResolvedStep;
 
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class PluginValidator {
 
     public static final Set<String> BUILT_IN_PRIMITIVES = Set.of(
-        "rest-call", "graphql-call", "json-extract", "compare-state", "assert", "approval-gate");
+            "rest-call", "graphql-call", "json-extract", "compare-state", "assert", "approval-gate");
 
     public static final Set<String> SUPPORTED_FIELD_TYPES = Set.of(
-        "string", "integer", "number", "boolean", "enum", "list", "map");
+            "string", "integer", "number", "boolean", "enum", "list", "map");
 
     static final Pattern INTERPOLATION_REF = Pattern.compile("\\$\\{([^}]+)}");
 
     static final Set<String> KNOWN_PREFIXES = Set.of(
-        "spec", "auth", "result", "param", "var", "fault");
+            "spec", "auth", "result", "param", "var", "fault");
 
     private PluginValidator() {}
 
