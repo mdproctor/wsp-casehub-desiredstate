@@ -14,13 +14,14 @@
 
 **Choice:** Direct Java host — replicate go-plugin host-side behavior in Java
 **Alternatives:**
-- Go shim/proxy — uses real go-plugin library, but adds a hop and Go build dependency
-- CLI wrapper (terraform plan/apply) — simplest but slow, stateful, poor error granularity
-**Rationale:** go-plugin handshake is well-documented and stable. Single stdout line parse + standard gRPC connect. Go shim adds operational complexity (two managed processes per provider) and Go toolchain requirement. CLI wrapping too coarse for per-resource reconciliation.
-**Trade-offs:** Must track go-plugin protocol changes ourselves (rare — hasn't changed in years)
-**Sources:** HashiCorp go-plugin protocol spec, issue #182 design principle
-**Exploration:** quick
-**Status:** captured
+- Go shim/proxy — uses real go-plugin library, but adds a hop and Go build dependency. Auto-mTLS handled, protocol evolution absorbed. Rejected: second managed process per provider, two process boundaries for lifecycle management, Go binary to build/version/distribute.
+- CLI wrapper (terraform plan/apply) — simplest but operates on configuration directories not individual resources. No per-resource operation API. Rejected: unsuitable for per-resource reconciliation.
+- Pulumi Terraform Bridge — wraps providers via Pulumi SDK. Rejected: massive dependency (full Pulumi SDK + state management), couples to Pulumi release cycle, adds state management alongside CaseHub's own. No architectural value — CaseHub already has reconciliation, planning, and state.
+**Rationale:** go-plugin handshake is well-documented and stable. Single stdout line parse + standard gRPC connect. Java owns the host side only — the provider binary runs unmodified. The go-plugin host protocol surface is small (stdout handshake, magic cookie, gRPC connect, StopProvider RPC). Go shim adds operational complexity (two managed processes per provider) and Go binary distribution requirement. CLI wrapping too coarse for per-resource reconciliation. Pulumi adds an entire orchestration framework for no gain.
+**Trade-offs:** Must implement auto-mTLS ourselves in Phase 2 (CA generation, cert exchange). Must track go-plugin protocol changes (rare — handshake format stable since 2016).
+**Sources:** HashiCorp go-plugin protocol spec, issue #182 design principle, R1-04/R1-13 review
+**Exploration:** quick → strengthened with alternatives analysis in R1
+**Status:** revised
 
 ## D3: Schema auto-discovery and YAML plugin leverage
 
@@ -67,6 +68,42 @@
 **Trade-offs:** If multiple go-plugin bridges emerge, will need extraction refactor
 **Sources:** Bridge runtime module structure, YAGNI principle
 **Exploration:** quick
+**Status:** captured
+
+## D8: NodeType namespace convention
+
+**Choice:** Prefix bridge-generated types as `tf:{namespace}/{type}:{resource}` (e.g. `tf:hashicorp/aws:aws_instance`)
+**Alternatives:**
+- Bare resource name (`aws_instance`) — simpler but collides with native CaseHub types, community provider forks, and future bridges
+- Short prefix (`tf:aws_instance`) — prevents cross-bridge collision but not cross-provider
+- Full prefix (`terraform:hashicorp/aws:aws_instance`) — most explicit but verbose
+**Rationale:** The namespace must be decided before any types are registered — changing the convention later requires migrating all stored state referencing old names. `tf:` is shorter than `terraform:` while still unambiguous. Including the provider namespace (`hashicorp/aws`) disambiguates official vs community providers for the same resource type.
+**Trade-offs:** Longer type strings in YAML declarations. Users cannot write bare `aws_instance`.
+**Sources:** Pulumi type system (`aws:ec2/instance:Instance`), Kubernetes GVK, R1-08 review
+**Exploration:** surfaced by review
+**Status:** captured
+
+## D9: Error classification default
+
+**Choice:** Default to `TRANSIENT` (retry with budget) for unrecognized errors
+**Alternatives:**
+- Default to `PERMANENT` (never retry) — the bridge SPI default, but wrong for infrastructure operations where most failures are retriable
+**Rationale:** For infrastructure operations, most unrecognized errors (network timeouts, cloud API outages, eventual consistency delays) are retriable. If genuinely permanent, repeated retries hit the retry budget and the FaultPolicyEngine escalates. Pattern matching across providers is inherently fragile, so the safe default is to retry.
+**Trade-offs:** Wasted retry attempts for genuinely permanent errors (bad configuration, invalid resource types)
+**Sources:** BridgeTypeDescriptor.defaultErrorCategory, FaultPolicyEngine escalation, R1-09 review
+**Exploration:** surfaced by review
+**Status:** captured
+
+## D10: State persistence mechanism
+
+**Choice:** New `BridgeOutputStateStore` SPI for per-resource Terraform output state
+**Alternatives:**
+- Extend `ReconciliationStateStore` to carry per-resource state — wrong abstraction (stores graphs, not resource state)
+- Embed state in `DesiredStateGraph` — pollutes the desired-state model with provider-specific actual state
+**Rationale:** Terraform providers are stateless — they expect the caller to track resource IDs, ARNs, and computed attributes between operations. This state is per-resource and per-tenant, distinct from the desired-state graph. A dedicated store with `store(tenancyId, nodeId, outputState)` / `load(tenancyId, nodeId)` / `remove(tenancyId, nodeId)` maps cleanly to the bridge lifecycle.
+**Trade-offs:** New SPI to implement and maintain. File-based default implementation; JPA implementation for persistent deployments.
+**Sources:** ProvisionResult.Success (no state), ReconciliationStateStore (stores graphs), R1-02 review
+**Exploration:** surfaced by review
 **Status:** captured
 
 ## D7: Testing strategy
