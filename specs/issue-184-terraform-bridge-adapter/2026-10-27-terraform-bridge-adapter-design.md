@@ -17,6 +17,37 @@ and `PluginSpecSchema` entries at runtime. No manifests, no code — point at a 
 (or declare `hashicorp/aws`) and every resource type is immediately available with full spec
 validation.
 
+### Integration Approach — Alternatives Considered
+
+**Direct Java host (chosen):** Java replicates the go-plugin host-side behavior — stdout
+handshake parse, gRPC channel connect, provider lifecycle management. The go-plugin host
+protocol is a single stdout line (`core|app|network|address|protocol`), a magic cookie env
+var, and standard gRPC. The provider side (signal handling, heartbeats, goroutine management)
+runs unmodified in the provider binary. Java owns the host side only.
+
+**Go shim proxy (rejected):** A ~100–200 line Go binary embedding the official `go-plugin`
+host library, exposing a clean gRPC API to Java. Benefits: auto-mTLS handled by go-plugin
+library, protocol negotiation absorbed by Go dependency updates. Rejected because: introduces
+a second managed process per provider (Java → shim-gRPC → shim → go-plugin → provider-gRPC
+→ provider), requires building/versioning/distributing a Go binary alongside the Java
+application, and couples provider lifecycle to two process boundaries instead of one. The
+shim absorbs protocol edge cases but adds operational complexity — health checking, restart
+coordination, and signal forwarding across two process boundaries.
+
+**Terraform CLI wrapper (rejected):** Shell out to `terraform plan/apply` for operations.
+Rejected because: Terraform CLI operates on entire configuration directories with its own
+state file management. It has no per-resource operation API — individual resource lifecycle
+(provision one `aws_instance`, read its state, deprovision it) requires synthetic Terraform
+configurations per operation. The process-per-operation overhead and loss of gRPC streaming
+make this unsuitable for per-resource reconciliation in a continuous loop.
+
+**Pulumi Terraform Bridge (rejected):** Pulumi's `pulumi-terraform-bridge` wraps any
+Terraform provider as a Pulumi resource with Java SDK support. Rejected because: introduces
+the full Pulumi SDK, its state management model (Pulumi state alongside CaseHub's
+`ReconciliationStateStore`), and coupling to Pulumi's release cycle. The abstraction layer
+adds no value — CaseHub already has reconciliation, planning, and state management. The
+bridge exists to access provider binaries, not to adopt another orchestration framework.
+
 ### Positioning
 
 CaseHub offers a spectrum of infrastructure authorship no other platform provides:
@@ -43,8 +74,11 @@ composition. Terraform alone gives plan/apply. CaseHub gives continuous reconcil
 **Phase 2 (follow-up issues):**
 - Import support (adopt existing resources)
 - Credential resolution via CaseHub's CredentialResolver
+- Per-configuration provider process pooling (multi-tenant credential isolation)
+- Auto-mTLS implementation (required before production deployment)
 - Suspend/resume mapping
-- GPG signature verification for registry downloads
+- GPG signature verification for registry downloads (required before production deployment)
+- `sensitive` and `deprecated` attribute flags in `PluginFieldDef`
 - Cloud provider integration tests
 
 ## Module Structure
@@ -67,6 +101,7 @@ composition. Terraform alone gives plan/apply. CaseHub gives continuous reconcil
 | Schema translator | `SchemaTranslator` | GetProviderSchema → NodeType + PluginSpecSchema, excludes computed-only attributes |
 | Schema cache | `SchemaCache` | Persist discovered schemas to disk, reload on startup, invalidate on version change |
 | Bridge provider | `TerraformBridgeProvider` | `BridgeProvider` + `PlanCapable` implementation |
+| State store | `BridgeOutputStateStore` | Per-resource Terraform output state persistence (resource IDs, ARNs, computed attributes) |
 | Registry client | `ProviderRegistryClient` | Download providers from registry.terraform.io, SHA256 verification, local cache |
 
 ### Build Dependencies
@@ -75,7 +110,8 @@ composition. Terraform alone gives plan/apply. CaseHub gives continuous reconcil
 - `grpc-java` — gRPC runtime + channel management
 - `msgpack-java` — msgpack decoding for v6 DynamicValue
 - `bridge/api` — BridgeProvider, PlanCapable, BridgeDescriptor
-- `plugin/api` — PluginSpecSchema (for schema translation)
+- `plugin/api` — PluginSpecSchema, PluginFieldDef (extracted from `plugin/runtime/` to
+  `plugin/api/` — these are pure data records with no runtime dependencies)
 
 ## Go-Plugin Handshake and Provider Lifecycle
 
@@ -94,8 +130,13 @@ Handles the go-plugin protocol's host side:
    - `address` → `host:port` for gRPC connection
    - `protocol` → must be `grpc` (error if `netrpc`)
 
-3. **Connect** — Opens a gRPC `ManagedChannel` to the extracted address. No mTLS in
-   Phase 1 (rare — only when provider opts in via client cert in handshake).
+3. **Connect** — Opens a gRPC `ManagedChannel` to the extracted address. Phase 1 omits
+   auto-mTLS, requiring plaintext localhost gRPC. Since go-plugin v5 (~2022), auto-mTLS
+   is the default: the host generates a temporary CA, creates certificates, and passes
+   them via `PLUGIN_CLIENT_CERT` env var. When launched by a non-Go host without this
+   env var, providers fall back to plaintext. This is a deliberate security regression
+   from Terraform CLI's default behavior. Phase 2 must implement auto-mTLS (CA generation,
+   cert exchange via handshake) before production deployment.
 
 4. **Health** — gRPC health checking on the channel.
 
@@ -110,9 +151,15 @@ Wraps `GoPluginHost` with lifecycle management:
   (providers are heavyweight Go binaries)
 - **Restart** — On failure, restarts per `RestartPolicy` from `BridgeLifecycleConfig`
   (on-failure with exponential backoff)
-- **Connection sharing** — One provider process per binary, shared across tenants.
-  Concurrent provision/deprovision calls share the same gRPC channel
-- **Thread-safe** — All operations synchronized through the process manager
+- **Connection sharing** — Phase 1: one provider process per binary, single configuration
+  (Phase 1 uses credential-free providers). Phase 2: one process per (binary, configuration
+  hash) for multi-tenant credential isolation — Terraform providers hold credentials in
+  memory after `ConfigureProvider`, so distinct tenant configurations require distinct
+  provider processes
+- **Concurrent operations** — Provider process lifecycle (start, stop, restart, health check)
+  is synchronized through the process manager. Individual gRPC calls (plan, apply, read)
+  are dispatched concurrently on the shared `ManagedChannel` — gRPC channels are multiplexed
+  and Terraform providers handle concurrent requests via goroutines
 
 ## Protocol Adapters (v5/v6)
 
@@ -167,24 +214,44 @@ On first access to a provider:
 1. **`GetProviderSchema`** — Returns every resource type with full attribute schemas.
 
 2. **`SchemaTranslator`** converts each resource type:
-   - `aws_instance` → `NodeType.of("aws_instance")`
+   - `aws_instance` → `NodeType.of("tf:hashicorp/aws:aws_instance")` — namespaced as
+     `tf:{namespace}/{type}:{resource}` to prevent collision with native CaseHub types,
+     other providers defining the same resource type, or future bridges (Pulumi, Crossplane)
    - Terraform attribute → `PluginSpecSchema` field:
      - `required` → `required: true`
      - `string` → `type: STRING`, `number` → `type: NUMBER`, `bool` → `type: BOOLEAN`
      - `list`/`set` → `type: LIST` with constraints
      - Nested blocks → `type: MAP` with `valueType`
      - `computed`-only attributes (outputs) excluded from spec schema
-   - Generates `BridgeTypeDescriptor` with uniform state mapping:
-     - `ReadResource` returns state → `PRESENT`
+   - Generates `BridgeTypeDescriptor` with state mapping:
+     - `ReadResource` returns state and plan shows no changes → `PRESENT`
+     - `ReadResource` returns state and plan shows changes → `DRIFTED`
      - `ReadResource` returns null → `ABSENT`
      - Read error → `UNKNOWN`
+
+   **Schema translation limitations** (known lossy mappings):
+   - Terraform block nesting modes (NestingSingle, NestingList, NestingSet, NestingMap) are
+     collapsed to `MAP` — ordering and cardinality semantics are lost
+   - `sensitive` attribute flag is not propagated — CaseHub won't mask these fields in logs
+     or diagnostics (Phase 2: add `sensitive` to `PluginFieldDef`)
+   - `deprecated` attribute flag is not propagated (Phase 2: add `deprecated` to
+     `PluginFieldDef`)
+   - Recursive nesting beyond one level is flattened — `PluginFieldDef.valueType` is a
+     string, not a recursive structure. Deep nesting (`instance.network_interface[0].ipv6_addresses`)
+     is accepted without structural validation
 
 3. **`SchemaCache`** — Persists schemas to `~/.casehub/cache/schemas/{namespace}/{type}/{version}/schema.json`
    (configurable via `casehub.bridge.terraform.cache-dir`). On subsequent startups, loads from
    cache unless provider version changes.
 
 4. **Dynamic `BridgeDescriptor`** — Built programmatically from discovered schema.
-   `BridgeDiscovery.discoverAll()` wires into `NodeProvisioner` + `ActualStateAdapter`.
+   `BridgeDiscovery.discoverAll()` returns `List<BeanRegistration>` containing
+   `BridgeProvisioner` (as `NodeProvisioner`) and `BridgeActualStateAdapter` (as
+   `ActualStateAdapter`) instances. These are registered at runtime via
+   `DynamicNodeProvisionerRouter.register()` and `DynamicActualStateAdapterRouter.register()`.
+   This is runtime registration — types are discovered after application start when the
+   provider binary is first accessed, not at Quarkus build time. The dynamic routers use
+   `ConcurrentHashMap` and support `register()`/`unregister()` for hot-loading.
 
 ### Zero-Config User Experience
 
@@ -192,7 +259,7 @@ On first access to a provider:
 desiredState:
   nodes:
     web-server:
-      type: aws_instance
+      type: tf:hashicorp/aws:aws_instance
       spec:
         ami: ami-0abcdef1234567890
         instance_type: t3.micro
@@ -222,15 +289,44 @@ signal), then `apply()` with destroy plan.
 
 ### Read State
 
-`readState(BridgeReadRequest)` → `TerraformProtocol.read()` with last-known state. Returns
-`BridgeStateResult.Found` with current attributes, or `BridgeStateResult.NotFound` if gone.
+`readState(BridgeReadRequest)` → `TerraformProtocol.read()` with last-known state from
+`BridgeOutputStateStore`. `BridgeReadRequest` is extended with `previousState` and
+`desiredSpec` fields. The Terraform bridge:
+
+1. Loads previous state from `BridgeOutputStateStore`
+2. Calls `ReadResource` with previous state (Terraform needs the resource ID to read)
+3. If resource exists, calls `PlanResourceChange` comparing actual state against desired
+   spec to detect attribute-level drift
+4. Returns `BridgeStateResult.Found` with a synthetic `status` field: `"present"` if plan
+   shows no changes, `"drifted"` if plan shows changes
+5. Returns `BridgeStateResult.NotFound` if resource is gone
 
 ### State Persistence
 
-Terraform providers are stateless — they expect the caller to track resource state. Output
-state from each apply is persisted via `ReconciliationStateStore`. `BridgeNodeSpec.fields()`
-carries desired spec; actual state from Terraform is stored as provisioned output, available
-via `BridgeRequest.previousState()` on subsequent operations.
+Terraform providers are stateless — they expect the caller to track resource state between
+operations. A new `BridgeOutputStateStore` SPI persists per-resource output state:
+
+```java
+interface BridgeOutputStateStore {
+    void store(String tenancyId, String nodeId, Map<String, Object> outputState);
+    Optional<Map<String, Object>> load(String tenancyId, String nodeId);
+    void remove(String tenancyId, String nodeId);
+}
+```
+
+On `BridgeResult.Success(outputState)`, `BridgeProvisioner.provision()` stores the output
+state via `BridgeOutputStateStore.store()`. On subsequent operations,
+`BridgeProvisioner.toBridgeRequest()` loads prior state via `BridgeOutputStateStore.load()`
+and populates `BridgeRequest.previousState()`. On deprovision success,
+`BridgeProvisioner.deprovision()` removes the stored state.
+
+This is distinct from `ReconciliationStateStore` (which stores desired-state graphs, not
+per-resource Terraform state). The `BridgeOutputStateStore` stores Terraform-specific
+output: resource IDs, ARNs, computed attributes — everything needed for subsequent
+plan/apply/read/destroy operations.
+
+Default implementation: file-based at `~/.casehub/state/{tenancyId}/{nodeId}/output.json`
+(configurable). JPA implementation for persistence-jpa deployments.
 
 ### Error Mapping
 
@@ -242,7 +338,15 @@ Terraform diagnostics with severity `ERROR` → `BridgeResult.Failed`:
 | Rate limiting / throttling | `TRANSIENT` |
 | Timeout errors | `TRANSIENT` |
 | Resource not found during apply | `PERMANENT` |
-| Everything else | `PERMANENT` |
+| Validation / invalid configuration | `PERMANENT` |
+| Everything else | `TRANSIENT` |
+
+The default is `TRANSIENT` (retry with budget) rather than `PERMANENT` (never retry).
+For infrastructure operations, most unrecognized errors are retriable (network timeouts,
+cloud API outages, eventual consistency delays). If genuinely permanent, repeated retries
+hit the retry budget and the `FaultPolicyEngine` escalates. Pattern matching is inherently
+fragile across providers (AWS says "AuthFailure", GCP says "PERMISSION_DENIED"), so the
+safe default is to retry and let the fault policy engine handle escalation.
 
 ## Provider Registry Client
 
@@ -265,12 +369,17 @@ if provider doesn't publish for current platform.
 
 ### Cache
 
-Versioned directory structure — no invalidation needed. `latest` re-checked every 24h
-(configurable).
+Versioned directory structure — no invalidation needed. Explicit version pinning is the
+default (`hashicorp/aws` at `5.60.0`). `latest` resolution is opt-in for development
+(re-checked every 24h, configurable). Schema compatibility is validated on version change:
+`SchemaCache` compares the new schema against the cached schema and logs warnings for
+removed/renamed attributes that could affect existing resources.
 
 ### Security
 
-SHA256 verification of downloaded archives. GPG signature verification deferred to Phase 2.
+SHA256 verification of downloaded archives. GPG signature verification deferred to Phase 2
+but required before production deployment with public registry downloads — SHA256 confirms
+integrity but not authenticity.
 
 ## Testing Strategy
 
@@ -314,7 +423,8 @@ with credential environment variables. Deferred until credential resolution land
 
 - `bridge/api/` — BridgeProvider, PlanCapable, BridgeDescriptor, BridgeOperation SPI
 - `bridge/runtime/` — BridgeProvisioner, BridgeActualStateAdapter, BridgeDiscovery, BridgeManifestParser
-- `plugin/api/` — PluginSpecSchema, PluginFieldDef (spec validation types)
+- `plugin/api/` — PluginSpecSchema, PluginFieldDef (spec validation types — to be extracted
+  from `plugin/runtime/` as a prerequisite for this work)
 - Issue #182 — bridge adapter architecture epic, design principle: target the protocol
 - Issue #183 — bridge adapter SPI design (implemented)
 - Issue #184 — this issue
