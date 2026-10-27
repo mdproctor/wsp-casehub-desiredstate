@@ -179,7 +179,8 @@ On first access to a provider:
      - `ReadResource` returns null → `ABSENT`
      - Read error → `UNKNOWN`
 
-3. **`SchemaCache`** — Persists schemas to disk. On subsequent startups, loads from
+3. **`SchemaCache`** — Persists schemas to `~/.casehub/cache/schemas/{namespace}/{type}/{version}/schema.json`
+   (configurable via `casehub.bridge.terraform.cache-dir`). On subsequent startups, loads from
    cache unless provider version changes.
 
 4. **Dynamic `BridgeDescriptor`** — Built programmatically from discovered schema.
