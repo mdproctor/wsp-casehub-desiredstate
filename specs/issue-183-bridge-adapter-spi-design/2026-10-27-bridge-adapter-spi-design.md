@@ -104,6 +104,22 @@ When `PlanCapable` is present, `BridgeProvisioner` calls `plan()` first and can 
 with `PlanApprovalGate` before calling `applyPlan()`. When absent, `apply()` is called
 directly.
 
+### SuspendCapable
+
+Optional mixin for providers that support native suspend/resume operations (e.g., stopping
+an EC2 instance without terminating it).
+
+```java
+public interface SuspendCapable {
+    BridgeResult suspend(BridgeRequest request);
+    BridgeResult resume(BridgeRequest request);
+}
+```
+
+When `SuspendCapable` is present, `BridgeProvisioner` delegates `NodeProvisioner.suspend()`
+and `resume()` to the bridge provider. When absent, `BridgeProvisioner` uses the stateless
+path (deprovision/provision) — matching `NodeProvisioner.supportsStatefulLifecycle() = false`.
+
 ### Request and Response Types
 
 All sealed — bridge providers return discriminated results, and the bridge runtime translates
@@ -143,6 +159,14 @@ public record BridgePlan(
     Object rawPlan                        // provider-native plan data
 ) {}
 
+public record ResourceChange(
+    String typeId,
+    String resourceId,
+    ChangeAction action
+) {}
+
+public enum ChangeAction { CREATE, UPDATE, DELETE }
+
 public enum BridgeErrorCategory {
     TRANSIENT,        // retryable — network timeout, rate limit
     PERMANENT,        // non-retryable — resource doesn't exist, invalid config
@@ -162,6 +186,14 @@ use this to communicate with the external provider, regardless of deployment mod
 public interface BridgeConnector extends AutoCloseable {
     boolean isHealthy();
     <T> T send(BridgeOperation operation, Class<T> responseType);
+}
+
+public sealed interface BridgeOperation {
+    record Apply(String typeId, String resourceId, Map<String, Object> spec) implements BridgeOperation {}
+    record Destroy(String typeId, String resourceId) implements BridgeOperation {}
+    record ReadState(String typeId, String resourceId) implements BridgeOperation {}
+    record Plan(String typeId, String resourceId, Map<String, Object> spec) implements BridgeOperation {}
+    record ApplyPlan(String planId, Object rawPlan) implements BridgeOperation {}
 }
 ```
 
@@ -200,6 +232,25 @@ public record BridgeLifecycleConfig(
     RestartPolicy restartPolicy,
     String endpoint               // for external service
 ) {}
+
+public enum LifecycleMode { MANAGED_PROCESS, EXTERNAL_SERVICE }
+
+public record HealthCheckConfig(
+    HealthCheckType type,         // GRPC, HTTP, TCP
+    Duration interval,
+    Duration timeout
+) {}
+
+public enum HealthCheckType { GRPC, HTTP, TCP }
+
+public record RestartPolicy(
+    RestartPolicyType policy,     // ON_FAILURE, ALWAYS, NEVER
+    int maxRetries,
+    BackoffStrategy backoff       // FIXED, EXPONENTIAL
+) {}
+
+public enum RestartPolicyType { ON_FAILURE, ALWAYS, NEVER }
+public enum BackoffStrategy { FIXED, EXPONENTIAL }
 ```
 
 ## Bridge Manifest Format
@@ -260,15 +311,27 @@ bridge:
 The `spec` section uses the same schema language as YAML plugin `PluginSpecSchema` —
 `PluginSpecValidator` validates bridge specs with no additional code.
 
+**Manifest maintenance:** When a provider adds new resource types, the manifest must be
+updated manually. Provider schema validation can be an optional build-time Maven plugin
+that compares manifest types against the provider's schema and flags missing or changed
+types — but this is not a runtime requirement.
+
+**State mapping escape hatch:** For complex state mappings that are hard to express
+declaratively, `BridgeProvider` implementations can override state mapping programmatically.
+`BridgeActualStateAdapter` checks the provider first; if no programmatic mapping is
+returned, it falls back to the manifest rules.
+
 ## Module Structure
 
 ```
 bridge/
 ├── api/                    casehub-desiredstate-bridge-api
-│   BridgeProvider, PlanCapable, BridgeConnector,
+│   BridgeProvider, PlanCapable, SuspendCapable,
+│   BridgeConnector, BridgeOperation,
 │   BridgeRequest, BridgeResult, BridgeStateResult,
-│   BridgePlan, BridgeDescriptor, BridgeErrorCategory,
-│   BridgeLifecycleConfig
+│   BridgePlan, ResourceChange, ChangeAction,
+│   BridgeDescriptor, BridgeErrorCategory,
+│   BridgeLifecycleConfig, HealthCheckConfig, RestartPolicy
 │
 ├── runtime/                casehub-desiredstate-bridge
 │   BridgeProvisioner (implements NodeProvisioner),
