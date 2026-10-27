@@ -113,6 +113,24 @@ composition. Terraform alone gives plan/apply. CaseHub gives continuous reconcil
 - `plugin/api` — PluginSpecSchema, PluginFieldDef (extracted from `plugin/runtime/` to
   `plugin/api/` — these are pure data records with no runtime dependencies)
 
+### Prerequisites — Changes to Existing Modules
+
+Before implementing `bridge/terraform/`, these changes to existing modules are required:
+
+1. **`plugin/api/`** — Extract `PluginSpecSchema` and `PluginFieldDef` from `plugin/runtime/`
+   (`io.casehub.desiredstate.plugin.model` package). Pure data records with no runtime
+   dependencies. `plugin/runtime/` re-imports from `plugin/api/`.
+
+2. **`bridge/api/`** — Add `BridgeOutputStateStore` interface (new SPI). Extend
+   `BridgeReadRequest` with `previousState` (`Map<String, Object>`) and `desiredSpec`
+   (`Map<String, Object>`) fields. This is a breaking change to `BridgeReadRequest` — all
+   existing callers (currently only `BridgeActualStateAdapter`) must be updated.
+
+3. **`bridge/runtime/`** — Update `BridgeProvisioner`: inject `BridgeOutputStateStore`,
+   store output state on `provision()` success, load prior state in `toBridgeRequest()`,
+   remove state on `deprovision()` success. Update `BridgeActualStateAdapter`: pass
+   `previousState` and `desiredSpec` when constructing `BridgeReadRequest`.
+
 ## Go-Plugin Handshake and Provider Lifecycle
 
 ### GoPluginHost
@@ -327,6 +345,16 @@ plan/apply/read/destroy operations.
 
 Default implementation: file-based at `~/.casehub/state/{tenancyId}/{nodeId}/output.json`
 (configurable). JPA implementation for persistence-jpa deployments.
+
+**State loss failure mode:** If `BridgeOutputStateStore` data is lost (file corruption,
+database wipe, migration error), Terraform-managed resources become unmanageable —
+`readState()` has no prior state, cannot call `ReadResource`, returns `NotFound`, and the
+reconciliation loop sees `ABSENT`. It then attempts to provision the resource, but the
+resource already exists in the cloud — the provider either creates a duplicate or fails
+with "already exists." Phase 2 import support resolves this (adopt existing resources by
+reading their state directly from the cloud provider). For Phase 1, which uses
+credential-free providers (null, random) where state loss is harmless, this failure mode
+is acceptable. Production deployments must treat `BridgeOutputStateStore` as critical data.
 
 ### Error Mapping
 
