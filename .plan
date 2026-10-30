@@ -13,11 +13,11 @@ flyway-next-v: unknown
 
 ## Queue
 - [ ] casehubio/casehub-desiredstate#186 — Issue #186 ← active
-  - [ ] Batch 1: Module+mocks
-    - [ ] Task 1: MockBridgeProvider+fault+injection
-    - [ ] Task 2: Capability+mock+providers
-  - [ ] Batch 2: TCK
-    - [ ] Task 3: Contract+tests+all+tiers
-  - [ ] Batch 3: Extension+extraction
-    - [ ] Task 4: BridgeTestExtension
-    - [ ] Task 5: Extract+mocks+update+CLAUDE.md
+  - [x] Batch 1: Module+mocks
+    - [x] Task 1: MockBridgeProvider+fault+injection
+    - [x] Task 2: Capability+mock+providers
+  - [x] Batch 2: TCK
+    - [x] Task 3: Contract+tests+all+tiers
+  - [x] Batch 3: Extension+extraction
+    - [x] Task 4: BridgeTestExtension
+    - [x] Task 5: Extract+mocks+update+CLAUDE.md
