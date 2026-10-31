@@ -17,8 +17,8 @@ flyway-next-v:
     - [x] Task 1: Module scaffold and manifest parser
     - [x] Task 2: Generators and error classifier
     - [x] Task 3: Output parser and process
-  - [ ] Batch 2: Provider and tests
-    - [ ] Task 4: AnsibleBridgeProvider with contract tests
-    - [ ] Task 5: Full build verification
+  - [x] Batch 2: Provider and tests
+    - [x] Task 4: AnsibleBridgeProvider with contract tests
+    - [x] Task 5: Full build verification
   - [ ] Batch 3: Documentation
     - [ ] Task 6: CLAUDE.md and guide updates
