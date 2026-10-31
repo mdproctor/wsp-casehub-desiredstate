@@ -251,9 +251,11 @@ auto-configuration — no new discovery code needed.
 
 The `ansible:` extension block is not part of the standard `BridgeManifest` schema. The manifest
 parser's `FAIL_ON_UNKNOWN_PROPERTIES = false` setting means the standard fields parse normally.
-`AnsibleBridgeProvider` reads the extension block by re-parsing the manifest or receiving the raw
-config as part of construction. Design choice: `AnsibleModuleConfig` is parsed at provider
-construction time from a supplementary YAML read, keyed by type ID.
+`AnsibleBridgeProvider` receives a `Map<String, AnsibleModuleConfig>` (keyed by type ID) at
+construction time. The Ansible module's CDI/Spring configuration parses the extension YAML
+separately — reading the same manifest file, extracting only the `ansible:` blocks per type,
+and constructing `AnsibleModuleConfig` records. This keeps the standard `BridgeManifestParser`
+unchanged.
 
 ### Ansible-Specific Considerations
 
