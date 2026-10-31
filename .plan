@@ -2,7 +2,7 @@
 
 ## State
 branch: issue-185-ansible-bridge-adapter
-state: closing:merged
+state: closing:stamped
 project-sha: 
 date: 
 issue-repo: casehubio/casehub-desiredstate
