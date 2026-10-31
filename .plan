@@ -1,0 +1,15 @@
+# Work Plan — issue-185-ansible-bridge-adapter
+
+## State
+branch: issue-185-ansible-bridge-adapter
+state: scaffolded
+project-sha: 
+date: 
+issue-repo: casehubio/casehub-desiredstate
+covers: 185
+design-repo: 
+design-section-hashes: 
+flyway-next-v: 
+
+## Queue
+- [ ] casehubio/casehub-desiredstate#185 — Issue #185 ← active
