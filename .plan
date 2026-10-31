@@ -15,7 +15,7 @@ flyway-next-v:
 - [ ] casehubio/casehub-desiredstate#185 — Issue #185 ← active
   - [ ] Batch 1: Core data types
     - [x] Task 1: Module scaffold and manifest parser
-    - [ ] Task 2: Generators and error classifier
+    - [x] Task 2: Generators and error classifier
     - [ ] Task 3: Output parser and process
   - [ ] Batch 2: Provider and tests
     - [ ] Task 4: AnsibleBridgeProvider with contract tests
