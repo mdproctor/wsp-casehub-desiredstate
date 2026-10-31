@@ -13,3 +13,12 @@ flyway-next-v:
 
 ## Queue
 - [ ] casehubio/casehub-desiredstate#185 — Issue #185 ← active
+  - [ ] Batch 1: Core data types
+    - [ ] Task 1: Module scaffold and manifest parser
+    - [ ] Task 2: Generators and error classifier
+    - [ ] Task 3: Output parser and process
+  - [ ] Batch 2: Provider and tests
+    - [ ] Task 4: AnsibleBridgeProvider with contract tests
+    - [ ] Task 5: Full build verification
+  - [ ] Batch 3: Documentation
+    - [ ] Task 6: CLAUDE.md and guide updates
