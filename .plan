@@ -20,5 +20,5 @@ flyway-next-v:
   - [x] Batch 2: Provider and tests
     - [x] Task 4: AnsibleBridgeProvider with contract tests
     - [x] Task 5: Full build verification
-  - [ ] Batch 3: Documentation
-    - [ ] Task 6: CLAUDE.md and guide updates
+  - [x] Batch 3: Documentation
+    - [x] Task 6: CLAUDE.md and guide updates
