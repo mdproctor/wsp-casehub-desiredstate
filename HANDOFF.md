@@ -2,21 +2,24 @@
 
 ## Last Session
 
-Bridge adapter hardening — landed 6 issues (#200–#205) in one session. Five bug fixes and one feature (Quarkus deployment extension). All on main, all pushed.
+Closed epic #185 — all 8 issues landed on main, pushed. Final issue was #206 (bridge adapter documentation).
 
-**Landed:**
-- #200: BridgePlan now carries tenancyId + typeId for applyPlan routing
-- #201: Ansible plan returns empty changes when no update needed
-- #202: Spring bridge discovery uses PathMatchingResourcePatternResolver
-- #203: Quarkus BridgeProcessor — manifest scan, BridgeRecorder, synthetic beans
-- #204: doReadState uses hasErrors() instead of diagnostics().isEmpty()
-- #205: AnsibleErrorClassifier returns PERMANENT for non-retryable errors
+**Landed this session:**
+- #206: Bridge adapter documentation — Terraform module table in CLAUDE.md, bridge/ansible/ added to consumer-guide modules, unified Bridge Adapters section in consumer-guide, bridge modules + Bridge Adapter Architecture section in contributor-guide
 
-Blog entry written: `docs/blog/2026-11-01-mdp01-six-bugs-at-the-seams.md`
+**Blog entry written:** `docs/blog/2026-11-01-mdp02-the-bridge-between-graphs-and-infrastructure.md` — essay on why bridge adapters exist, the two-SPI architecture, zero-config discovery, and what graph-based reconciliation adds over standalone infrastructure tools.
 
-## Next Session
+## Epic Summary (#185)
 
-#206 — bridge adapter documentation. Last item in the queue.
+All 8 issues complete and closed:
+- #185: Ansible collection bridge adapter (epic)
+- #200: BridgePlan tenancyId + typeId routing fix
+- #201: Ansible plan empty-changes handling
+- #202: Spring bridge discovery PathMatchingResourcePatternResolver
+- #203: Quarkus bridge deployment extension
+- #204: Terraform doReadState hasErrors() fix
+- #205: AnsibleErrorClassifier PERMANENT classification
+- #206: Bridge adapter documentation
 
 ## Cross-Module
 
@@ -26,6 +29,7 @@ Blog entry written: `docs/blog/2026-11-01-mdp01-six-bugs-at-the-seams.md`
 
 | Artifact | Location |
 |----------|----------|
-| Commits | `6f83d0a` through `0d431d5` on main |
-| Blog | `docs/blog/2026-11-01-mdp01-six-bugs-at-the-seams.md` |
-| Plan | `.plan` — position 7/8, #206 active |
+| Commits | `6f83d0a` through `df0a9ad` on main |
+| Blog (diary) | `docs/blog/2026-11-01-mdp01-six-bugs-at-the-seams.md` |
+| Blog (essay) | `docs/blog/2026-11-01-mdp02-the-bridge-between-graphs-and-infrastructure.md` |
+| Plan | removed — epic complete |
