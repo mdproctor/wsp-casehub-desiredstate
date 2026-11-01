@@ -2,29 +2,29 @@
 
 ## Last Session
 
-Closed #185 (Ansible collection bridge adapter) and epic #182 (bridge adapter architecture). Landed as `25b1b9f` on main, audit fixes as `05f6ff0`.
+Post-bridge code review of Ansible and Terraform adapters. Found 5 bugs, 1 missing feature, 1 doc gap. Issues #189, #187, #188 were already landed from a prior session.
 
-**What shipped:**
-- **`bridge/ansible/` module** — `AnsibleBridgeProvider` implements `BridgeProvider` + `ImportCapable` + `PlanCapable` via `ansible-playbook` CLI with JSON callback. Eight production classes: `PlaybookGenerator`, `AnsibleOutputParser` (drift detection via `drift_keys`, output extraction via `output_keys`), `InventoryGenerator`, `AnsibleProcess` (0700 temp dirs, virtual-thread stderr drain, shutdown hook), `AnsibleErrorClassifier` (TRANSIENT default), `AnsibleManifestExtensionParser`, `AnsibleModuleConfig`, `ProcessExecutor`
-- **Spring auto-config** — `AnsibleBridgeAutoConfiguration` with `@ConditionalOnMissingBean`
-- **Audit fixes** — `applyPlan()` was returning cached check-mode result instead of executing real provisioning (stored original request in `AnsiblePlanContext`, delegates to `apply()`); stderr/stdout separation via virtual thread; null `resultKey` NPE guard; `splitSpec()` type-safe casts
-- **Epic #182 closed** — all four children complete (#183 SPI, #184 Terraform, #185 Ansible, #186 testing)
-- 52 tests (unit + TCK contract tests for all three SPIs)
+**Review findings — 7 issues created:**
 
-**Blog entry:**
-- Diary: workspace `blog/2026-10-31-mdp01-ansible-bridge-and-the-bug-that-looked-right.md`
+| # | Title | Priority | Scale | Complexity |
+|---|-------|----------|-------|------------|
+| 200 | bug: Terraform applyPlan() uses resourceId as tenancyId and typeId | P1 | XS | Low |
+| 201 | bug: Ansible plan() returns CREATE when no changes needed | P2 | XS | Low |
+| 202 | bug: Spring bridge auto-config discovery opens directory URL as stream | P1 | S | Low |
+| 203 | feat: complete Quarkus bridge deployment extension | P2 | M | Med |
+| 204 | bug: Terraform doReadState treats warnings as drift | P2 | XS | Low |
+| 205 | fix: AnsibleErrorClassifier never returns PERMANENT | P3 | XS | Low |
+| 206 | docs: bridge adapter documentation | P3 | S | Low |
+
+**Key findings:**
+- Terraform `applyPlan()` path is broken at runtime — `planId` carries resourceId instead of tenancyId/typeId
+- Spring manifest discovery is broken for ALL bridge adapters — directory URL opened as stream, silently returns empty
+- Quarkus `BridgeProcessor` is a stub — only registers native-image resources, no bean wiring
+- Both adapters' core protocol stacks are solid (52 Ansible tests, 133 Terraform tests all passing)
 
 ## Next Session
 
-Start with `work start 189` — all three issues are follow-ons from #134 rollback work.
-
-| # | Title | Scale | Complexity | Blocked by | Notes |
-|---|-------|-------|------------|------------|-------|
-| 189 | fix: GraphSerializer ordering constraints | XS | Low | — | Bug fix, do first — unblocks correct history round-trips |
-| 187 | feat: PreferenceProvider for history prune depth | XS | Low | — | Mechanical wiring, same session as 189 |
-| 188 | feat: per-node rollback | S | Med | — | Builds on history store from #134, needs design for dependency semantics |
-
-**Recommended order:** 189 → 187 → 188. The two XS issues are quick wins on the same code paths. #188 is the meatiest and benefits from a fresh context window.
+**Recommended order:** 200 → 204 → 201 → 205 → 202 → 203 → 206. Bug fixes first (small, targeted), then Spring discovery, then Quarkus deployment (largest), then docs last.
 
 ## Cross-Module
 

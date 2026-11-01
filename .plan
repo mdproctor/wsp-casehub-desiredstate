@@ -10,8 +10,8 @@ covers: 185
 design-repo: 
 design-section-hashes: 
 flyway-next-v: 
-
 evidence-era: true
+
 ## Queue
 - [ ] casehubio/casehub-desiredstate#185 — Issue #185 ← active
   - [x] Batch 1: Core data types
@@ -23,3 +23,10 @@ evidence-era: true
     - [x] Task 5: Full build verification
   - [x] Batch 3: Documentation
     - [x] Task 6: CLAUDE.md and guide updates
+- [ ] casehubio/casehub-desiredstate#200 — TerraformBridgeProvider applyPlan uses resourceId as tenancyId
+- [ ] casehubio/casehub-desiredstate#201 — Ansible plan returns CREATE when no changes needed
+- [ ] casehubio/casehub-desiredstate#202 — Spring bridge auto-config discovery opens directory URL as stream
+- [ ] casehubio/casehub-desiredstate#203 — complete Quarkus bridge deployment extension
+- [ ] casehubio/casehub-desiredstate#204 — Terraform doReadState treats warnings as drift
+- [ ] casehubio/casehub-desiredstate#205 — AnsibleErrorClassifier never returns PERMANENT
+- [ ] casehubio/casehub-desiredstate#206 — bridge adapter documentation
