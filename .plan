@@ -1,0 +1,17 @@
+# Work Plan — Work Plan —
+
+## State
+branch: 
+state: active
+project-sha: 
+date: 2026-11-01
+issue-repo: casehubio/casehub-desiredstate
+covers: 210
+design-repo: project
+design-section-hashes: 
+flyway-next-v: unknown
+
+## Queue
+- [ ] casehubio/casehub-desiredstate#207 — ARC42 bridge chapter
+- [ ] casehubio/casehub-desiredstate#208 — bridge teaching example
+- [ ] casehubio/casehub-desiredstate#209 — SuspendCapable for bridge adapters
