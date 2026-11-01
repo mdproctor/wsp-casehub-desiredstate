@@ -1,7 +1,7 @@
 # Work Plan — issue-185-ansible-bridge-adapter
 
 ## State
-branch: fix/200-terraform-applyplan-routing
+branch: 
 state: active
 project-sha: 
 date: 
@@ -14,10 +14,10 @@ evidence-era: true
 
 ## Queue
 - [x] casehubio/casehub-desiredstate#185 — Issue #185
-- [ ] casehubio/casehub-desiredstate#200 — TerraformBridgeProvider applyPlan uses resourceId as tenancyId ← active
-- [ ] casehubio/casehub-desiredstate#201 — Ansible plan returns CREATE when no changes needed
-- [ ] casehubio/casehub-desiredstate#202 — Spring bridge auto-config discovery opens directory URL as stream
-- [ ] casehubio/casehub-desiredstate#203 — complete Quarkus bridge deployment extension
-- [ ] casehubio/casehub-desiredstate#204 — Terraform doReadState treats warnings as drift
-- [ ] casehubio/casehub-desiredstate#205 — AnsibleErrorClassifier never returns PERMANENT
-- [ ] casehubio/casehub-desiredstate#206 — bridge adapter documentation
+- [x] casehubio/casehub-desiredstate#200 — TerraformBridgeProvider applyPlan uses resourceId as tenancyId
+- [x] casehubio/casehub-desiredstate#201 — Ansible plan returns CREATE when no changes needed
+- [x] casehubio/casehub-desiredstate#202 — Spring bridge auto-config discovery opens directory URL as stream
+- [x] casehubio/casehub-desiredstate#203 — complete Quarkus bridge deployment extension
+- [x] casehubio/casehub-desiredstate#204 — Terraform doReadState treats warnings as drift
+- [x] casehubio/casehub-desiredstate#205 — AnsibleErrorClassifier never returns PERMANENT
+- [ ] casehubio/casehub-desiredstate#206 — bridge adapter documentation ← active
