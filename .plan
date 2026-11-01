@@ -2,7 +2,7 @@
 
 ## State
 branch: 
-state: closing:merged
+state: closing:stamped
 project-sha: 
 date: 
 issue-repo: casehubio/casehub-desiredstate
