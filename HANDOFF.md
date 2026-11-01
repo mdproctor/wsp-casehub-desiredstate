@@ -2,29 +2,21 @@
 
 ## Last Session
 
-Post-bridge code review of Ansible and Terraform adapters. Found 5 bugs, 1 missing feature, 1 doc gap. Issues #189, #187, #188 were already landed from a prior session.
+Bridge adapter hardening — landed 6 issues (#200–#205) in one session. Five bug fixes and one feature (Quarkus deployment extension). All on main, all pushed.
 
-**Review findings — 7 issues created:**
+**Landed:**
+- #200: BridgePlan now carries tenancyId + typeId for applyPlan routing
+- #201: Ansible plan returns empty changes when no update needed
+- #202: Spring bridge discovery uses PathMatchingResourcePatternResolver
+- #203: Quarkus BridgeProcessor — manifest scan, BridgeRecorder, synthetic beans
+- #204: doReadState uses hasErrors() instead of diagnostics().isEmpty()
+- #205: AnsibleErrorClassifier returns PERMANENT for non-retryable errors
 
-| # | Title | Priority | Scale | Complexity |
-|---|-------|----------|-------|------------|
-| 200 | bug: Terraform applyPlan() uses resourceId as tenancyId and typeId | P1 | XS | Low |
-| 201 | bug: Ansible plan() returns CREATE when no changes needed | P2 | XS | Low |
-| 202 | bug: Spring bridge auto-config discovery opens directory URL as stream | P1 | S | Low |
-| 203 | feat: complete Quarkus bridge deployment extension | P2 | M | Med |
-| 204 | bug: Terraform doReadState treats warnings as drift | P2 | XS | Low |
-| 205 | fix: AnsibleErrorClassifier never returns PERMANENT | P3 | XS | Low |
-| 206 | docs: bridge adapter documentation | P3 | S | Low |
-
-**Key findings:**
-- Terraform `applyPlan()` path is broken at runtime — `planId` carries resourceId instead of tenancyId/typeId
-- Spring manifest discovery is broken for ALL bridge adapters — directory URL opened as stream, silently returns empty
-- Quarkus `BridgeProcessor` is a stub — only registers native-image resources, no bean wiring
-- Both adapters' core protocol stacks are solid (52 Ansible tests, 133 Terraform tests all passing)
+Blog entry written: `docs/blog/2026-11-01-mdp01-six-bugs-at-the-seams.md`
 
 ## Next Session
 
-**Recommended order:** 200 → 204 → 201 → 205 → 202 → 203 → 206. Bug fixes first (small, targeted), then Spring discovery, then Quarkus deployment (largest), then docs last.
+#206 — bridge adapter documentation. Last item in the queue.
 
 ## Cross-Module
 
@@ -34,10 +26,6 @@ Post-bridge code review of Ansible and Terraform adapters. Found 5 bugs, 1 missi
 
 | Artifact | Location |
 |----------|----------|
-| Issue | casehubio/casehub-desiredstate#185 |
-| Epic | casehubio/casehub-desiredstate#182 (closed) |
-| Commits | `25b1b9f` (feature), `05f6ff0` (audit fixes) on main |
-| Design spec | specs/issue-185-ansible-bridge-adapter/2026-10-31-ansible-bridge-adapter-design.md |
-| Decisions | specs/issue-185-ansible-bridge-adapter/decisions.md (7 decisions) |
-| Implementation plan | plans/2026-10-31-ansible-bridge-adapter.md |
-| Design review | ~/reviews/casehub-desiredstate/ansible-bridge-adapter-design-20261031-050508/ |
+| Commits | `6f83d0a` through `0d431d5` on main |
+| Blog | `docs/blog/2026-11-01-mdp01-six-bugs-at-the-seams.md` |
+| Plan | `.plan` — position 7/8, #206 active |
