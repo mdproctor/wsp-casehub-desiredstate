@@ -2,7 +2,7 @@
 
 ## State
 branch: 
-state: active
+state: closing:review
 project-sha: 
 date: 
 issue-repo: casehubio/casehub-desiredstate
@@ -20,4 +20,4 @@ evidence-era: true
 - [x] casehubio/casehub-desiredstate#203 — complete Quarkus bridge deployment extension
 - [x] casehubio/casehub-desiredstate#204 — Terraform doReadState treats warnings as drift
 - [x] casehubio/casehub-desiredstate#205 — AnsibleErrorClassifier never returns PERMANENT
-- [ ] casehubio/casehub-desiredstate#206 — bridge adapter documentation ← active
+- [x] casehubio/casehub-desiredstate#206 — bridge adapter documentation
