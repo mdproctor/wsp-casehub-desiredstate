@@ -2,34 +2,37 @@
 
 ## Last Session
 
-Closed epic #185 — all 8 issues landed on main, pushed. Final issue was #206 (bridge adapter documentation).
+Closed epic #185 (8/8 issues). Final issue #206 was bridge adapter documentation — added Terraform module to CLAUDE.md, unified Bridge Adapters section to consumer-guide, bridge module table + Bridge Adapter Architecture section to contributor-guide.
 
-**Landed this session:**
-- #206: Bridge adapter documentation — Terraform module table in CLAUDE.md, bridge/ansible/ added to consumer-guide modules, unified Bridge Adapters section in consumer-guide, bridge modules + Bridge Adapter Architecture section in contributor-guide
+Blog entry written: "The Bridge Between Graphs and Infrastructure" — essay on the two-SPI architecture, zero-config discovery, and why graph-based reconciliation over infrastructure tools fills a gap. Two non-inline SVGs.
 
-**Blog entry written:** `docs/blog/2026-11-01-mdp02-the-bridge-between-graphs-and-infrastructure.md` — essay on why bridge adapters exist, the two-SPI architecture, zero-config discovery, and what graph-based reconciliation adds over standalone infrastructure tools.
+Created four new issues and a fresh plan for next work.
 
-## Epic Summary (#185)
+## Next Session
 
-All 8 issues complete and closed:
-- #185: Ansible collection bridge adapter (epic)
-- #200: BridgePlan tenancyId + typeId routing fix
-- #201: Ansible plan empty-changes handling
-- #202: Spring bridge discovery PathMatchingResourcePatternResolver
-- #203: Quarkus bridge deployment extension
-- #204: Terraform doReadState hasErrors() fix
-- #205: AnsibleErrorClassifier PERMANENT classification
-- #206: Bridge adapter documentation
+Plan queue (4 issues):
+
+| # | Title | Scale | Complexity | Notes |
+|---|-------|-------|-----------|-------|
+| #210 ← active | Reconciliation CDI context fix | S | Med | Branch `fix/220-reconciliation-cdi-context` exists with implementation — needs review and landing |
+| #207 | ARC42 bridge chapter | M | Med | Document bridge adapter architecture while context is fresh |
+| #208 | Bridge teaching example — mock cloud-resource domain | M | Med | Every other surface has an example; validates contributor guide |
+| #209 | SuspendCapable for Terraform + Ansible | S | Med | SPI and TCK exist; gap is in the two concrete adapters |
+
+Start with `work continue` — plan is active, #210 is first.
+
+**#210 head start:** The fix is already implemented on branch `fix/220-reconciliation-cdi-context` (1 commit: `6065f39`). Adds `schedulerContextRunner` to `ReconciliationLoop` that wraps scheduler callbacks with CDI request context activation. Three files changed: `ReconciliationLoop.java`, `RuntimeBeans.java`, `DesiredStateRuntimeAutoConfiguration.java`. Needs: review the existing branch, verify tests pass, land via work-end.
 
 ## Cross-Module
 
-#161 still pending — Spring auto-config codegen requires work in `casehubio/parent` repo.
+- #161 still pending — Spring auto-config codegen requires work in `casehubio/parent`
+- #133 commented with feasibility assessment — bulk discovery won't work through bridge protocol (no enumerate RPC in Terraform, no generic scan in Ansible). Recommended closing or narrowing to Terraform state file import
 
 ## References
 
 | Artifact | Location |
 |----------|----------|
-| Commits | `6f83d0a` through `df0a9ad` on main |
-| Blog (diary) | `docs/blog/2026-11-01-mdp01-six-bugs-at-the-seams.md` |
 | Blog (essay) | `docs/blog/2026-11-01-mdp02-the-bridge-between-graphs-and-infrastructure.md` |
-| Plan | removed — epic complete |
+| Blog (diary) | `docs/blog/2026-11-01-mdp01-six-bugs-at-the-seams.md` |
+| Plan | `.plan` — position 1/4, #210 active |
+| CDI fix branch | `fix/220-reconciliation-cdi-context` (commit `6065f39`) |
