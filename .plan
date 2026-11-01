@@ -2,7 +2,7 @@
 
 ## State
 branch: fix/200-terraform-applyplan-routing
-state: closing:promoted
+state: closing:pushed
 project-sha: 
 date: 
 issue-repo: casehubio/casehub-desiredstate
