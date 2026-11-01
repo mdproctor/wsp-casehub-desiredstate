@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 480" font-family="Inter, -apple-system, system-ui, sans-serif" font-size="13">
+  <defs>
+    <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#64748b"/>
+    </marker>
+    <linearGradient id="toolGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#dbeafe"/>
+      <stop offset="100%" stop-color="#bfdbfe"/>
+    </linearGradient>
+    <linearGradient id="spiGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fef3c7"/>
+      <stop offset="100%" stop-color="#fde68a"/>
+    </linearGradient>
+    <linearGradient id="runtimeGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#d1fae5"/>
+      <stop offset="100%" stop-color="#a7f3d0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Title -->
+  <text x="410" y="30" text-anchor="middle" font-size="16" font-weight="600" fill="#1e293b">Bridge SPI — One Abstraction, Many Tools</text>
+
+  <!-- Tool layer -->
+  <text x="50" y="75" font-size="11" fill="#64748b" font-weight="500">EXISTING TOOLS</text>
+
+  <rect x="50" y="85" width="160" height="65" rx="8" fill="url(#toolGrad)" stroke="#93c5fd" stroke-width="1.5"/>
+  <text x="130" y="110" text-anchor="middle" font-weight="600" fill="#1e40af">Terraform</text>
+  <text x="130" y="128" text-anchor="middle" font-size="11" fill="#3b82f6">Go gRPC Protocol</text>
+
+  <rect x="240" y="85" width="160" height="65" rx="8" fill="url(#toolGrad)" stroke="#93c5fd" stroke-width="1.5"/>
+  <text x="320" y="110" text-anchor="middle" font-weight="600" fill="#1e40af">Ansible</text>
+  <text x="320" y="128" text-anchor="middle" font-size="11" fill="#3b82f6">CLI + JSON Callback</text>
+
+  <rect x="430" y="85" width="160" height="65" rx="8" fill="url(#toolGrad)" stroke="#93c5fd" stroke-width="1.5" stroke-dasharray="6 3"/>
+  <text x="510" y="110" text-anchor="middle" font-weight="600" fill="#1e40af">Puppet / Chef</text>
+  <text x="510" y="128" text-anchor="middle" font-size="11" fill="#93c5fd">Future bridges</text>
+
+  <rect x="620" y="85" width="160" height="65" rx="8" fill="url(#toolGrad)" stroke="#93c5fd" stroke-width="1.5" stroke-dasharray="6 3"/>
+  <text x="700" y="110" text-anchor="middle" font-weight="600" fill="#1e40af">Cloud SDKs</text>
+  <text x="700" y="128" text-anchor="middle" font-size="11" fill="#93c5fd">Direct API bridges</text>
+
+  <!-- Adapter layer -->
+  <text x="50" y="180" font-size="11" fill="#64748b" font-weight="500">BRIDGE ADAPTERS</text>
+
+  <rect x="50" y="190" width="160" height="50" rx="6" fill="#eff6ff" stroke="#60a5fa" stroke-width="1"/>
+  <text x="130" y="212" text-anchor="middle" font-size="12" fill="#1d4ed8">TerraformBridgeProvider</text>
+  <text x="130" y="228" text-anchor="middle" font-size="10" fill="#60a5fa">+ PlanCapable + ImportCapable</text>
+
+  <rect x="240" y="190" width="160" height="50" rx="6" fill="#eff6ff" stroke="#60a5fa" stroke-width="1"/>
+  <text x="320" y="212" text-anchor="middle" font-size="12" fill="#1d4ed8">AnsibleBridgeProvider</text>
+  <text x="320" y="228" text-anchor="middle" font-size="10" fill="#60a5fa">+ PlanCapable + ImportCapable</text>
+
+  <!-- Arrows from tools to adapters -->
+  <line x1="130" y1="150" x2="130" y2="188" stroke="#64748b" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+  <line x1="320" y1="150" x2="320" y2="188" stroke="#64748b" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+
+  <!-- Bridge SPI layer -->
+  <text x="50" y="275" font-size="11" fill="#64748b" font-weight="500">BRIDGE SPI</text>
+
+  <rect x="50" y="285" width="540" height="55" rx="8" fill="url(#spiGrad)" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="320" y="307" text-anchor="middle" font-weight="600" fill="#92400e">BridgeProvider</text>
+  <text x="320" y="325" text-anchor="middle" font-size="11" fill="#b45309">apply() · destroy() · readState() · protocolId() · supportedTypes()</text>
+
+  <!-- Arrows from adapters to SPI -->
+  <line x1="130" y1="240" x2="130" y2="283" stroke="#64748b" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+  <line x1="320" y1="240" x2="320" y2="283" stroke="#64748b" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+  <text x="195" y="268" text-anchor="middle" font-size="10" fill="#64748b">implements</text>
+
+  <!-- Runtime layer -->
+  <text x="50" y="375" font-size="11" fill="#64748b" font-weight="500">CASEHUB RUNTIME</text>
+
+  <rect x="50" y="385" width="165" height="50" rx="6" fill="url(#runtimeGrad)" stroke="#34d399" stroke-width="1"/>
+  <text x="132" y="407" text-anchor="middle" font-size="12" fill="#065f46">BridgeProvisioner</text>
+  <text x="132" y="423" text-anchor="middle" font-size="10" fill="#059669">→ NodeProvisioner</text>
+
+  <rect x="235" y="385" width="175" height="50" rx="6" fill="url(#runtimeGrad)" stroke="#34d399" stroke-width="1"/>
+  <text x="322" y="407" text-anchor="middle" font-size="12" fill="#065f46">BridgeActualStateAdapter</text>
+  <text x="322" y="423" text-anchor="middle" font-size="10" fill="#059669">→ ActualStateAdapter</text>
+
+  <rect x="430" y="385" width="160" height="50" rx="6" fill="url(#runtimeGrad)" stroke="#34d399" stroke-width="1"/>
+  <text x="510" y="407" text-anchor="middle" font-size="12" fill="#065f46">ReconciliationLoop</text>
+  <text x="510" y="423" text-anchor="middle" font-size="10" fill="#059669">drift · fault · lifecycle</text>
+
+  <!-- Arrow from SPI to runtime -->
+  <line x1="320" y1="340" x2="320" y2="383" stroke="#64748b" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+  <text x="360" y="368" text-anchor="start" font-size="10" fill="#64748b">BridgeDiscovery wraps</text>
+
+  <!-- Arrow connecting runtime -->
+  <line x1="410" y1="410" x2="428" y2="410" stroke="#34d399" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+
+  <!-- Annotation -->
+  <rect x="620" y="285" width="175" height="150" rx="8" fill="#fefce8" stroke="#eab308" stroke-width="1" stroke-dasharray="4 2"/>
+  <text x="707" y="308" text-anchor="middle" font-size="11" font-weight="600" fill="#854d0e">Same runtime for all:</text>
+  <text x="632" y="330" font-size="11" fill="#713f12">• Continuous reconciliation</text>
+  <text x="632" y="350" font-size="11" fill="#713f12">• Drift detection</text>
+  <text x="632" y="370" font-size="11" fill="#713f12">• Fault escalation</text>
+  <text x="632" y="390" font-size="11" fill="#713f12">• Dependency ordering</text>
+  <text x="632" y="410" font-size="11" fill="#713f12">• Lifecycle management</text>
+  <text x="632" y="430" font-size="11" fill="#713f12">• Plan approval gates</text>
+
+  <!-- Caption -->
+  <text x="410" y="470" text-anchor="middle" font-size="11" fill="#94a3b8" font-style="italic">Each tool keeps its strengths. CaseHub adds what none of them have alone.</text>
+</svg>
