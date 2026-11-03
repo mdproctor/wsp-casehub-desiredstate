@@ -2,7 +2,7 @@
 
 ## State
 branch: issue-207-arc42-bridge-chapter
-state: closing:promoted
+state: closing:pushed
 project-sha: 
 date: 2026-11-01
 issue-repo: casehubio/casehub-desiredstate
