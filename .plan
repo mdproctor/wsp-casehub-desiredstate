@@ -16,8 +16,8 @@ evidence-era: true
 - [x] casehubio/casehub-desiredstate#210 — reconciliation CDI context fix
 - [x] casehubio/casehub-desiredstate#207 — ARC42 bridge chapter
 - [ ] casehubio/casehub-desiredstate#208 — bridge teaching example ← active
-  - [ ] Batch 1: Scaffold
-    - [ ] Task 1: MockCloudProvider+TCK
-  - [ ] Batch 2: MixedGraph
-    - [ ] Task 2: GoalCompiler+Provisioner+Integration
+  - [x] Batch 1: Scaffold
+    - [x] Task 1: MockCloudProvider+TCK
+  - [x] Batch 2: MixedGraph
+    - [x] Task 2: GoalCompiler+Provisioner+Integration
 - [ ] casehubio/casehub-desiredstate#209 — SuspendCapable for bridge adapters
