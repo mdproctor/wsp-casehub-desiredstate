@@ -17,9 +17,9 @@ evidence-era: true
 - [x] casehubio/casehub-desiredstate#207 — ARC42 bridge chapter
 - [x] casehubio/casehub-desiredstate#208 — bridge teaching example
 - [ ] casehubio/casehub-desiredstate#209 — SuspendCapable for bridge adapters ← active
-  - [ ] Batch 1: Ansible SuspendCapable
-    - [ ] Task 1: Extend AnsibleModuleConfig and parser
-    - [ ] Task 2: Implement SuspendCapable on AnsibleBridgeProvider
-  - [ ] Batch 2: Terraform SuspendCapable
-    - [ ] Task 3: Create TerraformSuspendConfig and parser
-    - [ ] Task 4: Implement SuspendCapable on TerraformBridgeProvider
+  - [x] Batch 1: Ansible SuspendCapable
+    - [x] Task 1: Extend AnsibleModuleConfig and parser
+    - [x] Task 2: Implement SuspendCapable on AnsibleBridgeProvider
+  - [x] Batch 2: Terraform SuspendCapable
+    - [x] Task 3: Create TerraformSuspendConfig and parser
+    - [x] Task 4: Implement SuspendCapable on TerraformBridgeProvider
