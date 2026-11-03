@@ -58,16 +58,18 @@ manifest extensions can be added to the same parser.
 
 ### Ansible
 
-**Config model:** Extend `AnsibleModuleConfig` with four new fields:
+**Config model:** Extend `AnsibleModuleConfig` with six new fields:
 - `suspendModule` — module to call for suspend (nullable)
 - `suspendStateParam` — parameter name for the suspend state (nullable)
 - `suspendStateValue` — value to set (nullable)
+- `resumeModule` — module to call for resume (nullable, defaults to `suspendModule`)
 - `resumeStateParam` — parameter name for the resume state (nullable, defaults to
-  `suspendStateParam` if absent)
+  `suspendStateParam`)
 - `resumeStateValue` — value to set (nullable)
 
-When `suspendModule` is null, the type does not support suspend. When present, the resume
-module defaults to the same module (most common pattern: same module, different state value).
+When `suspendModule` is null, the type does not support suspend. When `resumeModule`
+is null, it defaults to `suspendModule` (most common pattern: same module, different
+state value).
 
 **suspend(BridgeRequest):**
 1. Look up `AnsibleModuleConfig` for `request.typeId()`
