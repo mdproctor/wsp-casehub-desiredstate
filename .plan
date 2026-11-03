@@ -1,12 +1,12 @@
 # Work Plan — Work Plan —
 
 ## State
-branch: 
-state: closing:stamped
+branch: issue-207-arc42-bridge-chapter
+state: active
 project-sha: 
 date: 2026-11-01
 issue-repo: casehubio/casehub-desiredstate
-covers: 210
+covers: 207
 design-repo: 
 design-section-hashes: 
 flyway-next-v: 
