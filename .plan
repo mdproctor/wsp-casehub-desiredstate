@@ -1,7 +1,7 @@
 # Work Plan — Work Plan —
 
 ## State
-branch: issue-207-arc42-bridge-chapter
+branch: 
 state: active
 project-sha: 
 date: 2026-11-01
@@ -14,6 +14,10 @@ evidence-era: true
 
 ## Queue
 - [x] casehubio/casehub-desiredstate#210 — reconciliation CDI context fix
-- [ ] casehubio/casehub-desiredstate#207 — ARC42 bridge chapter ← active
-- [ ] casehubio/casehub-desiredstate#208 — bridge teaching example
+- [x] casehubio/casehub-desiredstate#207 — ARC42 bridge chapter
+- [ ] casehubio/casehub-desiredstate#208 — bridge teaching example ← active
+  - [ ] Batch 1: Scaffold
+    - [ ] Task 1: MockCloudProvider+TCK
+  - [ ] Batch 2: MixedGraph
+    - [ ] Task 2: GoalCompiler+Provisioner+Integration
 - [ ] casehubio/casehub-desiredstate#209 — SuspendCapable for bridge adapters
