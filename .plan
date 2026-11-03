@@ -1,7 +1,7 @@
 # Work Plan — Work Plan —
 
 ## State
-branch: fix/220-reconciliation-cdi-context
+branch: 
 state: closing:review
 project-sha: 
 date: 2026-11-01
@@ -10,10 +10,10 @@ covers: 210
 design-repo: 
 design-section-hashes: 
 flyway-next-v: 
-
 evidence-era: true
+
 ## Queue
-- [ ] casehubio/casehub-desiredstate#210 — reconciliation CDI context fix ← active
-- [ ] casehubio/casehub-desiredstate#207 — ARC42 bridge chapter
+- [x] casehubio/casehub-desiredstate#210 — reconciliation CDI context fix
+- [ ] casehubio/casehub-desiredstate#207 — ARC42 bridge chapter ← active
 - [ ] casehubio/casehub-desiredstate#208 — bridge teaching example
 - [ ] casehubio/casehub-desiredstate#209 — SuspendCapable for bridge adapters
