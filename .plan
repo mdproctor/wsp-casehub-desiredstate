@@ -2,7 +2,7 @@
 
 ## State
 branch: issue-221-brownfield-discovery
-state: closing:verified
+state: closing:promoted
 project-sha: 
 date: 
 issue-repo: casehubio/casehub-desiredstate
