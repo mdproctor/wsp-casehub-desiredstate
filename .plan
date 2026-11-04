@@ -16,14 +16,8 @@ evidence-era: true
 - [x] casehubio/casehub-desiredstate#210 — reconciliation CDI context fix
 - [x] casehubio/casehub-desiredstate#207 — ARC42 bridge chapter
 - [x] casehubio/casehub-desiredstate#208 — bridge teaching example
-- [ ] casehubio/casehub-desiredstate#209 — SuspendCapable for bridge adapters ← active
-  - [x] Batch 1: Ansible SuspendCapable
-    - [x] Task 1: Extend AnsibleModuleConfig and parser
-    - [x] Task 2: Implement SuspendCapable on AnsibleBridgeProvider
-  - [x] Batch 2: Terraform SuspendCapable
-    - [x] Task 3: Create TerraformSuspendConfig and parser
-    - [x] Task 4: Implement SuspendCapable on TerraformBridgeProvider
-- [ ] casehubio/casehub-desiredstate#216 — CloudEvent emission fix
+- [x] casehubio/casehub-desiredstate#209 — SuspendCapable for bridge adapters
+- [ ] casehubio/casehub-desiredstate#216 — CloudEvent emission fix ← active
 - [ ] casehubio/casehub-desiredstate#213 — SuspendCapable bridge-cloud example
 - [ ] casehubio/casehub-desiredstate#218 — suspend/resume hooks
 - [ ] casehubio/casehub-desiredstate#214 — scheduled suspend scenario
