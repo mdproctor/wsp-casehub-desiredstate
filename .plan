@@ -2,7 +2,7 @@
 
 ## State
 branch: 
-state: closing:verified
+state: closing:promoted
 project-sha: 
 date: 2026-11-01
 issue-repo: casehubio/casehub-desiredstate
