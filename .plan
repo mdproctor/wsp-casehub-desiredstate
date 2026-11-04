@@ -17,8 +17,8 @@ evidence-era: true
 - [x] casehubio/casehub-desiredstate#207 — ARC42 bridge chapter
 - [x] casehubio/casehub-desiredstate#208 — bridge teaching example
 - [x] casehubio/casehub-desiredstate#209 — SuspendCapable for bridge adapters
-- [ ] casehubio/casehub-desiredstate#216 — CloudEvent emission fix ← active
-- [ ] casehubio/casehub-desiredstate#213 — SuspendCapable bridge-cloud example
+- [x] casehubio/casehub-desiredstate#216 — CloudEvent emission fix
+- [ ] casehubio/casehub-desiredstate#213 — SuspendCapable bridge-cloud example ← active
 - [ ] casehubio/casehub-desiredstate#218 — suspend/resume hooks
 - [ ] casehubio/casehub-desiredstate#214 — scheduled suspend scenario
 - [ ] casehubio/casehub-desiredstate#217 — targetStatus on declaration surfaces
