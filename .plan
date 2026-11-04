@@ -23,3 +23,9 @@ evidence-era: true
   - [x] Batch 2: Terraform SuspendCapable
     - [x] Task 3: Create TerraformSuspendConfig and parser
     - [x] Task 4: Implement SuspendCapable on TerraformBridgeProvider
+- [ ] casehubio/casehub-desiredstate#216 — CloudEvent emission fix
+- [ ] casehubio/casehub-desiredstate#213 — SuspendCapable bridge-cloud example
+- [ ] casehubio/casehub-desiredstate#218 — suspend/resume hooks
+- [ ] casehubio/casehub-desiredstate#214 — scheduled suspend scenario
+- [ ] casehubio/casehub-desiredstate#217 — targetStatus on declaration surfaces
+- [ ] casehubio/casehub-desiredstate#215 — CaseTransitionExecutor suspend/resume
