@@ -1,19 +1,15 @@
-# Work Plan — Work Plan —
+# Work Plan — issue-221-brownfield-discovery
 
 ## State
-branch: issue-207-arc42-bridge-chapter
-state: active
+branch: issue-221-brownfield-discovery
+state: scaffolded
 project-sha: 
-date: 2026-11-01
+date: 
 issue-repo: casehubio/casehub-desiredstate
 covers: 207
 design-repo: 
 design-section-hashes: 
 flyway-next-v: 
-evidence-era: true
 
 ## Queue
-- [x] casehubio/casehub-desiredstate#210 — reconciliation CDI context fix
-- [ ] casehubio/casehub-desiredstate#207 — ARC42 bridge chapter ← active
-- [ ] casehubio/casehub-desiredstate#208 — bridge teaching example
-- [ ] casehubio/casehub-desiredstate#209 — SuspendCapable for bridge adapters
+- [ ] casehubio/casehub-desiredstate#221 — Issue #221 ← active
