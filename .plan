@@ -13,3 +13,17 @@ flyway-next-v:
 
 ## Queue
 - [ ] casehubio/casehub-desiredstate#221 — Issue #221 ← active
+  - [ ] Batch 1: Foundation
+    - [ ] Task 1: DiscoveryCapable mixin
+    - [ ] Task 2: DiscoveryAdapter SPI
+  - [ ] Batch 2: Router
+    - [ ] Task 3: DefaultDiscoveryAdapterRouter
+    - [ ] Task 4: BridgeDiscoveryAdapter
+  - [ ] Batch 3: Pipeline
+    - [ ] Task 5: DiscoveryOrchestrator
+    - [ ] Task 6: YamlGraphSerializer
+  - [ ] Batch 4: Wiring
+    - [ ] Task 7: CDI and Spring wiring
+    - [ ] Task 8: Integration test
+  - [ ] Batch 5: Docs
+    - [ ] Task 9: CLAUDE.md update
