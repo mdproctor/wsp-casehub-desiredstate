@@ -1,30 +1,15 @@
-# Work Plan — issue-221-brownfield-discovery
+# Work Plan — issue-211-society-lifecycle-org-bridge
 
 ## State
-branch: issue-221-brownfield-discovery
-state: closing:stamped
+branch: issue-211-society-lifecycle-org-bridge
+state: scaffolded
 project-sha: 
 date: 
 issue-repo: casehubio/casehub-desiredstate
-covers: 207
+covers: 211
 design-repo: 
 design-section-hashes: 
 flyway-next-v: 
 
-evidence-era: true
 ## Queue
-- [ ] casehubio/casehub-desiredstate#221 — Issue #221 ← active
-  - [x] Batch 1: Foundation
-    - [x] Task 1: DiscoveryCapable mixin
-    - [x] Task 2: DiscoveryAdapter SPI
-  - [x] Batch 2: Router
-    - [x] Task 3: DefaultDiscoveryAdapterRouter
-    - [x] Task 4: BridgeDiscoveryAdapter
-  - [x] Batch 3: Pipeline
-    - [x] Task 5: DiscoveryOrchestrator
-    - [x] Task 6: YamlGraphSerializer
-  - [x] Batch 4: Wiring
-    - [x] Task 7: CDI and Spring wiring
-    - [x] Task 8: Integration test
-  - [x] Batch 5: Docs
-    - [x] Task 9: CLAUDE.md update
+- [ ] casehubio/casehub-desiredstate#211 — Issue #211 ← active
